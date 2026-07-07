@@ -2,91 +2,220 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>Xiaomi 5 Custom Controller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tooble Scooter Firmware Tool</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #121212; color: white; }
-        button { padding: 15px 30px; font-size: 18px; margin: 10px; border-none; border-radius: 8px; cursor: pointer; }
-        .connect { background-color: #00adb5; color: white; }
-        .action { background-color: #ff2e63; color: white; }
-        #status { margin-top: 20px; font-weight: bold; color: #00adb5; }
+        :root {
+            --bg-color: #0b0c10;
+            --card-color: #1f2833;
+            --cyan: #46a29f;
+            --neon-cyan: #66fcf1;
+            --pink: #ff2e63;
+            --text-color: #c5a059;
+        }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            background: var(--bg-color); 
+            color: #fff; 
+            margin: 0;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: var(--card-color);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #2f3b4c;
+        }
+        h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
+        p { color: #85929e; font-size: 14px; margin-top: 0; }
+        
+        /* Buton Stilleri */
+        button { 
+            width: 100%;
+            padding: 14px; 
+            font-size: 16px; 
+            font-weight: bold;
+            margin: 8px 0; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+        }
+        .btn-connect { background: var(--cyan); color: #fff; box-shadow: 0 4px 15px rgba(70,162,159,0.3); }
+        .btn-connect:active { background: var(--neon-cyan); color: #000; }
+        .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
+        .btn-action:active { background: var(--cyan); }
+        
+        /* Uyarı Paneli */
+        #browser-warning {
+            display: none;
+            background: rgba(255, 46, 99, 0.2);
+            border: 1px solid var(--pink);
+            color: #ff85a2;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        /* Güçlendirilmiş Terminal / Log Ekranı */
+        .terminal {
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            height: 180px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            text-align: left;
+            box-shadow: inset 0 0 10px rgba(0,255,0,0.1);
+        }
+        .log-entry { margin-bottom: 4px; }
+        .log-time { color: #555; margin-right: 5px; }
     </style>
 </head>
 <body>
 
-    <h1>Xiaomi 5 Firmware Script Tool</h1>
-    <p>iPhone (Bluefy) üzerinden doğrudan donanım kontrolü</p>
+<div class="container">
+    <h1>Xiaomi 5 Firmware Tool</h1>
+    <p>Mühendislik & Eğitim Tabanlı Donanım Kontrolü</p>
     
-    <button class="connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
-    <br><br>
-    <button class="action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
-    <button class="action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
+    <!-- Tarayıcı Uyarısı (Otomatik Tetiklenir) -->
+    <div id="browser-warning">
+        <strong>⚠️ UYARI:</strong> Tarayıcınız Web Bluetooth desteklemiyor! Lütfen bu sayfanın linkini kopyalayıp App Store'dan indirdiğiniz <strong>Bluefy</strong> tarayıcısının içine yapıştırarak açın. Safari/Chrome desteklemez.
+    </div>
+    
+    <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
+    <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
+    <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
 
-    <div id="status">Durum: Bağlantı bekleniyor...</div>
+    <!-- Canlı Log Terminali -->
+    <div class="terminal" id="terminal-console">
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Tool başlatıldı. Bağlantı bekleniyor...</div>
+    </div>
+</div>
 
-    <script>
-        let scooterCharacteristic = null;
+<script>
+    let scooterCharacteristic = null;
 
-        // 1. Bluetooth ile Scooter'a Bağlanma Fonksiyonu
-        async function connectScooter() {
-            document.getElementById('status').innerText = "Cihaz aranıyor...";
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'MIScooter' }, { namePrefix: 'Xiaomi' }],
-                    optionalServices: ['0000e0ff-0000-1000-8000-00805f9b34fb']
-                });
-
-                const server = await device.gpt.connect();
-                const service = await server.getPrimaryService('0000e0ff-0000-1000-8000-00805f9b34fb');
-                scooterCharacteristic = await service.getCharacteristic('0000e1ff-0000-1000-8000-00805f9b34fb');
-
-                document.getElementById('status').innerText = "Bağlantı Başarılı: " + device.name;
-            } catch (error) {
-                document.getElementById('status').innerText = "Hata: " + error;
-            }
+    // Tarayıcı kontrolünü sistem yüklenir yüklenmez yapıyoruz (Sistemi Güçlendiren Kısım)
+    window.onload = function() {
+        if (!navigator.bluetooth) {
+            document.getElementById('browser-warning').style.display = 'block';
+            printLog("Kritik Hata: navigator.bluetooth tanımsız! Uyarıyı inceleyin.", "pink");
+        } else {
+            printLog("Web Bluetooth API Aktif. Bağlanmaya hazır.", "neon");
         }
+    };
 
-        // Xiaomi protokolü için basit Checksum (Doğrulama) hesaplayıcı
-        function createPacket(payload) {
-            let header = [0x55, 0xAA]; // Xiaomi standart paket başlangıcı
-            let len = payload.length;
-            let packet = header.concat([len], payload);
-            
-            // Checksum hesaplama (Paket güvenliği için)
-            let sum = 0;
-            for(let i = 2; i < packet.length; i++) {
-                sum += packet[i];
-            }
-            let checksum = (sum ^ 0xFFFF) & 0xFFFF;
-            packet.push(checksum & 0xFF);
-            packet.push((checksum >> 8) & 0xFF);
-            
-            return new Uint8Array(packet);
+    // Terminale renkli log basan fonksiyon (Görsel Retention Artırıcı)
+    function printLog(message, type = 'info') {
+        const consoleEl = document.getElementById('terminal-console');
+        const time = new Date().toLocaleTimeString();
+        let color = '#fff';
+        
+        if (type === 'pink') color = '#ff2e63';
+        if (type === 'neon') color = '#66fcf1';
+        if (type === 'success') color = '#2ecc71';
+
+        consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
+        consoleEl.scrollTop = consoleEl.scrollHeight; // Otomatik aşağı kaydırır
+    }
+
+    // Bluetooth Bağlantısı
+    async function connectScooter() {
+        if (!navigator.bluetooth) {
+            printLog("Hata: Desteklenmeyen tarayıcıda işlem yapılamaz!", "pink");
+            return;
         }
+        
+        printLog("Cihaz arama penceresi tetiklendi...", "info");
+        try {
+            const device = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'MIScooter' }, { namePrefix: 'Xiaomi' }],
+                optionalServices: ['0000e0ff-0000-1000-8000-00805f9b34fb']
+            });
 
-        // 2. Zero Start Komutu Gönderme
-        async function setZeroStart() {
-            if (!scooterCharacteristic) return alert("Önce scooter'a bağlanın!");
+            printLog(`Cihaz bulundu: ${device.name}. GATT sunucusuna bağlanılıyor...`, "info");
             
-            // Örnek Xiaomi protokolü: [Yön, Komut, RegisterAdresi, Değer]
-            // Kalkış hızını 0 yapmak için gönderilen temsili byte paketi
-            let payload = [0x03, 0x20, 0x3A, 0x00]; 
-            let packet = createPacket(payload);
+            // GATT bağlantısı düzeltildi (device.gatt)
+            const server = await device.gatt.connect();
+            printLog("Servis okunuyor...", "info");
+            const service = await server.getPrimaryService('0000e0ff-0000-1000-8000-00805f9b34fb');
+            
+            printLog("Karakteristik doğrulanıyor...", "info");
+            scooterCharacteristic = await service.getCharacteristic('0000e1ff-0000-1000-8000-00805f9b34fb');
 
+            printLog(`Başarıyla Bağlandı: ${device.name}`, "success");
+        } catch (error) {
+            printLog(`Bağlantı Hatası: ${error.message}`, "pink");
+        }
+    }
+
+    // Basit Xiaomi Protokol Paketi Hazırlayıcı (Checksum Hesaplamalı)
+    function createPacket(payload) {
+        let header = [0x55, 0xAA];
+        let len = payload.length;
+        let packet = header.concat([len], payload);
+        
+        let sum = 0;
+        for(let i = 2; i < packet.length; i++) {
+            sum += packet[i];
+        }
+        let checksum = (sum ^ 0xFFFF) & 0xFFFF;
+        packet.push(checksum & 0xFF);
+        packet.push((checksum >> 8) & 0xFF);
+        
+        return new Uint8Array(packet);
+    }
+
+    // Zero Start Ayarı
+    async function setZeroStart() {
+        if (!scooterCharacteristic) {
+            printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
+            return;
+        }
+        
+        printLog("Zero Start paketi hazırlanıyor...", "info");
+        let payload = [0x03, 0x20, 0x3A, 0x00]; 
+        let packet = createPacket(payload);
+
+        try {
+            printLog(`TX -> Veri gönderiliyor: ${Array.from(packet).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')}`, "neon");
             await scooterCharacteristic.writeValue(packet);
-            document.getElementById('status').innerText = "Zero Start Komutu Gönderildi!";
+            printLog("Zero Start (0 km/h) başarıyla uygulandı!", "success");
+        } catch(err) {
+            printLog(`Yazma Hatası: ${err.message}`, "pink");
         }
+    }
 
-        // 3. Hız Limitini 22 km/h Yapma Komutu
-        async function setSpeed22() {
-            if (!scooterCharacteristic) return alert("Önce scooter'a bağlanın!");
-            
-            // 22 km/h sınırı için ilgili register'a (Örn: 0x3B) hex değer gönderme
-            let payload = [0x03, 0x20, 0x3B, 0x16]; // 0x16 hex = 22 decimal
-            let packet = createPacket(payload);
+    // Hız Sınırı 22 km/h Ayarı
+    async function setSpeed22() {
+        if (!scooterCharacteristic) {
+            printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
+            return;
+        }
+        
+        printLog("Hız limiti (22 km/h) paketi hazırlanıyor...", "info");
+        let payload = [0x03, 0x20, 0x3B, 0x16]; // 0x16 Hex = 22 Decimal
+        let packet = createPacket(payload);
 
+        try {
+            printLog(`TX -> Veri gönderiliyor: ${Array.from(packet).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')}`, "neon");
             await scooterCharacteristic.writeValue(packet);
-            document.getElementById('status').innerText = "Hız Sınırı 22 km/h olarak ayarlandı!";
+            printLog("Hız sınırı başarıyla 22 km/h yapıldı!", "success");
+        } catch(err) {
+            printLog(`Yazma Hatası: ${err.message}`, "pink");
         }
-    </script>
+    }
+</script>
+
 </body>
 </html>
