@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Xiaomi 5 Custom Controller</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #121212; color: white; }
+        button { padding: 15px 30px; font-size: 18px; margin: 10px; border-none; border-radius: 8px; cursor: pointer; }
+        .connect { background-color: #00adb5; color: white; }
+        .action { background-color: #ff2e63; color: white; }
+        #status { margin-top: 20px; font-weight: bold; color: #00adb5; }
+    </style>
+</head>
+<body>
+
+    <h1>Xiaomi 5 Firmware Script Tool</h1>
+    <p>iPhone (Bluefy) üzerinden doğrudan donanım kontrolü</p>
+    
+    <button class="connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
+    <br><br>
+    <button class="action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
+    <button class="action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
+
+    <div id="status">Durum: Bağlantı bekleniyor...</div>
+
+    <script>
+        let scooterCharacteristic = null;
+
+        // 1. Bluetooth ile Scooter'a Bağlanma Fonksiyonu
+        async function connectScooter() {
+            document.getElementById('status').innerText = "Cihaz aranıyor...";
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'MIScooter' }, { namePrefix: 'Xiaomi' }],
+                    optionalServices: ['0000e0ff-0000-1000-8000-00805f9b34fb']
+                });
+
+                const server = await device.gpt.connect();
+                const service = await server.getPrimaryService('0000e0ff-0000-1000-8000-00805f9b34fb');
+                scooterCharacteristic = await service.getCharacteristic('0000e1ff-0000-1000-8000-00805f9b34fb');
+
+                document.getElementById('status').innerText = "Bağlantı Başarılı: " + device.name;
+            } catch (error) {
+                document.getElementById('status').innerText = "Hata: " + error;
+            }
+        }
+
+        // Xiaomi protokolü için basit Checksum (Doğrulama) hesaplayıcı
+        function createPacket(payload) {
+            let header = [0x55, 0xAA]; // Xiaomi standart paket başlangıcı
+            let len = payload.length;
+            let packet = header.concat([len], payload);
+            
+            // Checksum hesaplama (Paket güvenliği için)
+            let sum = 0;
+            for(let i = 2; i < packet.length; i++) {
+                sum += packet[i];
+            }
+            let checksum = (sum ^ 0xFFFF) & 0xFFFF;
+            packet.push(checksum & 0xFF);
+            packet.push((checksum >> 8) & 0xFF);
+            
+            return new Uint8Array(packet);
+        }
+
+        // 2. Zero Start Komutu Gönderme
+        async function setZeroStart() {
+            if (!scooterCharacteristic) return alert("Önce scooter'a bağlanın!");
+            
+            // Örnek Xiaomi protokolü: [Yön, Komut, RegisterAdresi, Değer]
+            // Kalkış hızını 0 yapmak için gönderilen temsili byte paketi
+            let payload = [0x03, 0x20, 0x3A, 0x00]; 
+            let packet = createPacket(payload);
+
+            await scooterCharacteristic.writeValue(packet);
+            document.getElementById('status').innerText = "Zero Start Komutu Gönderildi!";
+        }
+
+        // 3. Hız Limitini 22 km/h Yapma Komutu
+        async function setSpeed22() {
+            if (!scooterCharacteristic) return alert("Önce scooter'a bağlanın!");
+            
+            // 22 km/h sınırı için ilgili register'a (Örn: 0x3B) hex değer gönderme
+            let payload = [0x03, 0x20, 0x3B, 0x16]; // 0x16 hex = 22 decimal
+            let packet = createPacket(payload);
+
+            await scooterCharacteristic.writeValue(packet);
+            document.getElementById('status').innerText = "Hız Sınırı 22 km/h olarak ayarlandı!";
+        }
+    </script>
+</body>
+</html>
