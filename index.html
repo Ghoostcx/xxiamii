@@ -32,7 +32,6 @@
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
         
-        /* Buton Stilleri */
         button { 
             width: 100%;
             padding: 14px; 
@@ -49,7 +48,6 @@
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
         .btn-action:active { background: var(--cyan); }
         
-        /* Uyarı Paneli */
         #browser-warning {
             display: none;
             background: rgba(255, 46, 99, 0.2);
@@ -62,14 +60,13 @@
             text-align: left;
         }
 
-        /* Güçlendirilmiş Terminal / Log Ekranı */
         .terminal {
             background: #000;
             border: 1px solid #333;
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 200px;
+            height: 220px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
             font-size: 12px;
@@ -102,7 +99,13 @@
 <script>
     let scooterCharacteristic = null;
 
-    // Tarayıcı kontrolü
+    // Piyasadaki tüm yaygın scooter servis ve veri (characteristic) kapıları
+    const SCOOTER_PROTOCOLS = [
+        { service: '0000e0ff-0000-1000-8000-00805f9b34fb', char: '0000e1ff-0000-1000-8000-00805f9b34fb', name: 'Xiaomi Klasik / M365 Kapısı' },
+        { service: '0000af00-0000-1000-8000-00805f9b34fb', char: '0000af01-0000-1000-8000-00805f9b34fb', name: 'Ninebot / Xiaomi Yeni Nesil Kapısı' },
+        { service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', char: '6e400002-b5a3-f393-e0a9-e50e24dcca9e', name: 'Dreame / Custom UART Kapısı' }
+    ];
+
     window.onload = function() {
         if (!navigator.bluetooth) {
             document.getElementById('browser-warning').style.display = 'block';
@@ -112,7 +115,6 @@
         }
     };
 
-    // Terminale log basan fonksiyon
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
         const time = new Date().toLocaleTimeString();
@@ -123,39 +125,56 @@
         if (type === 'success') color = '#2ecc71';
 
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
-        consoleEl.scrollTop = consoleEl.scrollHeight; // Otomatik aşağı kaydırma
+        consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    // Bluetooth Bağlantısı (Filtresiz Tam Tarama)
+    // Gelişmiş Çoklu Kapı Bağlantı Fonksiyonu
     async function connectScooter() {
         if (!navigator.bluetooth) {
             printLog("Hata: Desteklenmeyen tarayıcıda işlem yapılamaz!", "pink");
             return;
         }
         
-        printLog("Tüm Bluetooth cihazları taranıyor (Filtre kaldırıldı)...", "info");
+        printLog("Cihaz taraması başlatıldı...", "info");
         try {
+            // Tüm olası servisleri tarayıcıya önceden bildiriyoruz ki iOS engellemesin
+            const allowedServices = SCOOTER_PROTOCOLS.map(p => p.service);
+            
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
-                optionalServices: ['0000e0ff-0000-1000-8000-00805f9b34fb']
+                optionalServices: allowedServices
             });
 
-            printLog(`Cihaz seçildi: ${device.name || "Bilinmeyen Cihaz"}. GATT sunucusuna bağlanılıyor...`, "info");
-            
+            printLog(`Cihaz seçildi: ${device.name || "Bilinmeyen"}. Sunucuya bağlanılıyor...`, "info");
             const server = await device.gatt.connect();
-            printLog("Servis okunuyor...", "info");
-            const service = await server.getPrimaryService('0000e0ff-0000-1000-8000-00805f9b34fb');
             
-            printLog("Karakteristik doğrulanıyor...", "info");
-            scooterCharacteristic = await service.getCharacteristic('0000e1ff-0000-1000-8000-00805f9b34fb');
+            printLog("Yazılım portları taranıyor...", "info");
+            
+            // Tüm protokol kapılarını sırayla dener
+            for (let protocol of SCOOTER_PROTOCOLS) {
+                try {
+                    printLog(`Deneniyor: ${protocol.name}`, "info");
+                    const service = await server.getPrimaryService(protocol.service);
+                    scooterCharacteristic = await service.getCharacteristic(protocol.char);
+                    
+                    // Eğer yukarıdaki satırlar hata fırlatmadıysa doğru kapıyı bulduk demektir!
+                    printLog(`Eşleşme Sağlandı! Aktif Port: ${protocol.name}`, "success");
+                    break; 
+                } catch (e) {
+                    // Bu kapı uymadıysa döngü bir sonrakine geçer
+                    continue;
+                }
+            }
 
-            printLog(`Başarıyla Bağlandı: ${device.name || "Scooter"}`, "success");
+            if (!scooterCharacteristic) {
+                throw new Error("Cihaza bağlandık fakat uygun hiçbir yazılım kapısı (UUID) uyuşmadı!");
+            }
+
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message || error}`, "pink");
         }
     }
 
-    // Xiaomi Protokol Paketi Hazırlayıcı (Checksum Hesaplamalı)
     function createPacket(payload) {
         let header = [0x55, 0xAA];
         let len = payload.length;
@@ -172,7 +191,6 @@
         return new Uint8Array(packet);
     }
 
-    // Zero Start Ayarı
     async function setZeroStart() {
         if (!scooterCharacteristic) {
             printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
@@ -192,7 +210,6 @@
         }
     }
 
-    // Hız Sınırı 22 km/h Ayarı
     async function setSpeed22() {
         if (!scooterCharacteristic) {
             printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
@@ -200,7 +217,7 @@
         }
         
         printLog("Hız limiti (22 km/h) paketi hazırlanıyor...", "info");
-        let payload = [0x03, 0x20, 0x3B, 0x16]; // 0x16 Hex = 22 Decimal
+        let payload = [0x03, 0x20, 0x3B, 0x16]; 
         let packet = createPacket(payload);
 
         try {
