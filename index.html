@@ -11,7 +11,6 @@
             --cyan: #46a29f;
             --neon-cyan: #66fcf1;
             --pink: #ff2e63;
-            --text-color: #c5a059;
         }
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -70,7 +69,7 @@
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 180px;
+            height: 200px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
             font-size: 12px;
@@ -84,10 +83,9 @@
 <body>
 
 <div class="container">
-    <h1>Xiaomi 5 Firmware Tool</h1>
+    <h1>Tooble Scooter Firmware Tool</h1>
     <p>Mühendislik & Eğitim Tabanlı Donanım Kontrolü</p>
     
-    <!-- Tarayıcı Uyarısı (Otomatik Tetiklenir) -->
     <div id="browser-warning">
         <strong>⚠️ UYARI:</strong> Tarayıcınız Web Bluetooth desteklemiyor! Lütfen bu sayfanın linkini kopyalayıp App Store'dan indirdiğiniz <strong>Bluefy</strong> tarayıcısının içine yapıştırarak açın. Safari/Chrome desteklemez.
     </div>
@@ -96,7 +94,6 @@
     <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
 
-    <!-- Canlı Log Terminali -->
     <div class="terminal" id="terminal-console">
         <div class="log-entry"><span class="log-time">[Sistem]</span> Tool başlatıldı. Bağlantı bekleniyor...</div>
     </div>
@@ -105,7 +102,7 @@
 <script>
     let scooterCharacteristic = null;
 
-    // Tarayıcı kontrolünü sistem yüklenir yüklenmez yapıyoruz (Sistemi Güçlendiren Kısım)
+    // Tarayıcı kontrolü
     window.onload = function() {
         if (!navigator.bluetooth) {
             document.getElementById('browser-warning').style.display = 'block';
@@ -115,7 +112,7 @@
         }
     };
 
-    // Terminale renkli log basan fonksiyon (Görsel Retention Artırıcı)
+    // Terminale log basan fonksiyon
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
         const time = new Date().toLocaleTimeString();
@@ -126,26 +123,25 @@
         if (type === 'success') color = '#2ecc71';
 
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
-        consoleEl.scrollTop = consoleEl.scrollHeight; // Otomatik aşağı kaydırır
+        consoleEl.scrollTop = consoleEl.scrollHeight; // Otomatik aşağı kaydırma
     }
 
-    // Bluetooth Bağlantısı
+    // Bluetooth Bağlantısı (Filtresiz Tam Tarama)
     async function connectScooter() {
         if (!navigator.bluetooth) {
             printLog("Hata: Desteklenmeyen tarayıcıda işlem yapılamaz!", "pink");
             return;
         }
         
-        printLog("Cihaz arama penceresi tetiklendi...", "info");
+        printLog("Tüm Bluetooth cihazları taranıyor (Filtre kaldırıldı)...", "info");
         try {
             const device = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'MIScooter' }, { namePrefix: 'Xiaomi' }],
+                acceptAllDevices: true,
                 optionalServices: ['0000e0ff-0000-1000-8000-00805f9b34fb']
             });
 
-            printLog(`Cihaz bulundu: ${device.name}. GATT sunucusuna bağlanılıyor...`, "info");
+            printLog(`Cihaz seçildi: ${device.name || "Bilinmeyen Cihaz"}. GATT sunucusuna bağlanılıyor...`, "info");
             
-            // GATT bağlantısı düzeltildi (device.gatt)
             const server = await device.gatt.connect();
             printLog("Servis okunuyor...", "info");
             const service = await server.getPrimaryService('0000e0ff-0000-1000-8000-00805f9b34fb');
@@ -153,13 +149,13 @@
             printLog("Karakteristik doğrulanıyor...", "info");
             scooterCharacteristic = await service.getCharacteristic('0000e1ff-0000-1000-8000-00805f9b34fb');
 
-            printLog(`Başarıyla Bağlandı: ${device.name}`, "success");
+            printLog(`Başarıyla Bağlandı: ${device.name || "Scooter"}`, "success");
         } catch (error) {
-            printLog(`Bağlantı Hatası: ${error.message}`, "pink");
+            printLog(`Bağlantı Hatası: ${error.message || error}`, "pink");
         }
     }
 
-    // Basit Xiaomi Protokol Paketi Hazırlayıcı (Checksum Hesaplamalı)
+    // Xiaomi Protokol Paketi Hazırlayıcı (Checksum Hesaplamalı)
     function createPacket(payload) {
         let header = [0x55, 0xAA];
         let len = payload.length;
@@ -192,7 +188,7 @@
             await scooterCharacteristic.writeValue(packet);
             printLog("Zero Start (0 km/h) başarıyla uygulandı!", "success");
         } catch(err) {
-            printLog(`Yazma Hatası: ${err.message}`, "pink");
+            printLog(`Yazma Hatası: ${err.message || err}`, "pink");
         }
     }
 
@@ -212,7 +208,7 @@
             await scooterCharacteristic.writeValue(packet);
             printLog("Hız sınırı başarıyla 22 km/h yapıldı!", "success");
         } catch(err) {
-            printLog(`Yazma Hatası: ${err.message}`, "pink");
+            printLog(`Yazma Hatası: ${err.message || err}`, "pink");
         }
     }
 </script>
