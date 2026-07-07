@@ -66,14 +66,14 @@
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 220px;
+            height: 240px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
-            font-size: 12px;
+            font-size: 11px;
             text-align: left;
             box-shadow: inset 0 0 10px rgba(0,255,0,0.1);
         }
-        .log-entry { margin-bottom: 4px; }
+        .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
     </style>
 </head>
@@ -84,7 +84,7 @@
     <p>Mühendislik & Eğitim Tabanlı Donanım Kontrolü</p>
     
     <div id="browser-warning">
-        <strong>⚠️ UYARI:</strong> Tarayıcınız Web Bluetooth desteklemiyor! Lütfen bu sayfanın linkini kopyalayıp App Store'dan indirdiğiniz <strong>Bluefy</strong> tarayıcısının içine yapıştırarak açın. Safari/Chrome desteklemez.
+        <strong>⚠️ UYARI:</strong> Tarayıcı Web Bluetooth desteklemiyor! Bluefy içerisinden açın.
     </div>
     
     <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
@@ -92,24 +92,25 @@
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Tool başlatıldı. Bağlantı bekleniyor...</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Diagnostic port taraıcı aktif. Bağlantı bekleniyor...</div>
     </div>
 </div>
 
 <script>
     let scooterCharacteristic = null;
 
-    // Piyasadaki tüm yaygın scooter servis ve veri (characteristic) kapıları
+    // Genişletilmiş ve Yeni Nesil Dreame/Xiaomi Protokol Listesi
     const SCOOTER_PROTOCOLS = [
+        { service: '0000fe95-0000-1000-8000-00805f9b34fb', char: '0000fe96-0000-1000-8000-00805f9b34fb', name: 'Xiaomi 4/5 / Dreame IoT Kapısı' },
         { service: '0000e0ff-0000-1000-8000-00805f9b34fb', char: '0000e1ff-0000-1000-8000-00805f9b34fb', name: 'Xiaomi Klasik / M365 Kapısı' },
-        { service: '0000af00-0000-1000-8000-00805f9b34fb', char: '0000af01-0000-1000-8000-00805f9b34fb', name: 'Ninebot / Xiaomi Yeni Nesil Kapısı' },
-        { service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', char: '6e400002-b5a3-f393-e0a9-e50e24dcca9e', name: 'Dreame / Custom UART Kapısı' }
+        { service: '0000af00-0000-1000-8000-00805f9b34fb', char: '0000af01-0000-1000-8000-00805f9b34fb', name: 'Ninebot / Xiaomi Yeni Sürüm' },
+        { service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', char: '6e400002-b5a3-f393-e0a9-e50e24dcca9e', name: 'Dreame Custom UART Kapısı' },
+        { service: '0000fefb-0000-1000-8000-00805f9b34fb', char: '0000fefc-0000-1000-8000-00805f9b34fb', name: 'Alternatif Güvenli Kapı' }
     ];
 
     window.onload = function() {
         if (!navigator.bluetooth) {
             document.getElementById('browser-warning').style.display = 'block';
-            printLog("Kritik Hata: navigator.bluetooth tanımsız! Uyarıyı inceleyin.", "pink");
         } else {
             printLog("Web Bluetooth API Aktif. Bağlanmaya hazır.", "neon");
         }
@@ -119,25 +120,21 @@
         const consoleEl = document.getElementById('terminal-console');
         const time = new Date().toLocaleTimeString();
         let color = '#fff';
-        
         if (type === 'pink') color = '#ff2e63';
         if (type === 'neon') color = '#66fcf1';
         if (type === 'success') color = '#2ecc71';
-
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    // Gelişmiş Çoklu Kapı Bağlantı Fonksiyonu
     async function connectScooter() {
         if (!navigator.bluetooth) {
-            printLog("Hata: Desteklenmeyen tarayıcıda işlem yapılamaz!", "pink");
+            printLog("Hata: Desteklenmeyen tarayıcı!", "pink");
             return;
         }
         
-        printLog("Cihaz taraması başlatıldı...", "info");
+        printLog("Cihaz araması tetiklendi...", "info");
         try {
-            // Tüm olası servisleri tarayıcıya önceden bildiriyoruz ki iOS engellemesin
             const allowedServices = SCOOTER_PROTOCOLS.map(p => p.service);
             
             const device = await navigator.bluetooth.requestDevice({
@@ -145,29 +142,39 @@
                 optionalServices: allowedServices
             });
 
-            printLog(`Cihaz seçildi: ${device.name || "Bilinmeyen"}. Sunucuya bağlanılıyor...`, "info");
+            printLog(`Cihaz: ${device.name}. GATT sunucusuna bağlanılıyor...`, "info");
             const server = await device.gatt.connect();
             
-            printLog("Yazılım portları taranıyor...", "info");
+            printLog("Donanım servisleri taranıyor...", "info");
             
-            // Tüm protokol kapılarını sırayla dener
+            // Aktif tarama ve eşleştirme döngüsü
             for (let protocol of SCOOTER_PROTOCOLS) {
                 try {
-                    printLog(`Deneniyor: ${protocol.name}`, "info");
+                    printLog(`Sorgulanıyor: ${protocol.name}`, "info");
                     const service = await server.getPrimaryService(protocol.service);
                     scooterCharacteristic = await service.getCharacteristic(protocol.char);
                     
-                    // Eğer yukarıdaki satırlar hata fırlatmadıysa doğru kapıyı bulduk demektir!
-                    printLog(`Eşleşme Sağlandı! Aktif Port: ${protocol.name}`, "success");
+                    printLog(`🎉 Eşleşme Başarılı! Aktif Hat: ${protocol.name}`, "success");
                     break; 
                 } catch (e) {
-                    // Bu kapı uymadıysa döngü bir sonrakine geçer
+                    // Bu kapı boşsa listedeki bir sonrakine geç
                     continue;
                 }
             }
 
+            // Eğer listedeki hiçbir şey uyuşmadıysa alternatif derin tarama yapıp UUID'leri ekrana döker
             if (!scooterCharacteristic) {
-                throw new Error("Cihaza bağlandık fakat uygun hiçbir yazılım kapısı (UUID) uyuşmadı!");
+                printLog("⚠️ Birincil kapılar uymadı! Cihazın gizli UUID kodları çözülüyor...", "pink");
+                try {
+                    const services = await server.getPrimaryServices();
+                    printLog(`Bulunan Toplam Servis Sayısı: ${services.length}`, "neon");
+                    for(let s of services) {
+                        printLog(`Mevcut Servis UUID: ${s.uuid}`, "neon");
+                    }
+                } catch(scanError) {
+                    printLog("Derin tarama iOS tarafından engellendi.", "pink");
+                }
+                throw new Error("Uygun kapı bulunamadı. Lütfen yukarıdaki UUID'leri kontrol edin.");
             }
 
         } catch (error) {
@@ -179,32 +186,24 @@
         let header = [0x55, 0xAA];
         let len = payload.length;
         let packet = header.concat([len], payload);
-        
         let sum = 0;
-        for(let i = 2; i < packet.length; i++) {
-            sum += packet[i];
-        }
+        for(let i = 2; i < packet.length; i++) sum += packet[i];
         let checksum = (sum ^ 0xFFFF) & 0xFFFF;
         packet.push(checksum & 0xFF);
         packet.push((checksum >> 8) & 0xFF);
-        
         return new Uint8Array(packet);
     }
 
     async function setZeroStart() {
         if (!scooterCharacteristic) {
-            printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
+            printLog("Hata: Önce bağlantı kurmalısınız!", "pink");
             return;
         }
-        
-        printLog("Zero Start paketi hazırlanıyor...", "info");
-        let payload = [0x03, 0x20, 0x3A, 0x00]; 
-        let packet = createPacket(payload);
-
+        printLog("Zero Start komutu gönderiliyor...", "info");
+        let packet = createPacket([0x03, 0x20, 0x3A, 0x00]);
         try {
-            printLog(`TX -> Veri gönderiliyor: ${Array.from(packet).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')}`, "neon");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Zero Start (0 km/h) başarıyla uygulandı!", "success");
+            printLog("Zero Start başarıyla tetiklendi!", "success");
         } catch(err) {
             printLog(`Yazma Hatası: ${err.message || err}`, "pink");
         }
@@ -212,18 +211,14 @@
 
     async function setSpeed22() {
         if (!scooterCharacteristic) {
-            printLog("Hata: Lütfen önce scooter'a bağlanın!", "pink");
+            printLog("Hata: Önce bağlantı kurmalısınız!", "pink");
             return;
         }
-        
-        printLog("Hız limiti (22 km/h) paketi hazırlanıyor...", "info");
-        let payload = [0x03, 0x20, 0x3B, 0x16]; 
-        let packet = createPacket(payload);
-
+        printLog("Hız limiti komutu gönderiliyor...", "info");
+        let packet = createPacket([0x03, 0x20, 0x3B, 0x16]);
         try {
-            printLog(`TX -> Veri gönderiliyor: ${Array.from(packet).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')}`, "neon");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Hız sınırı başarıyla 22 km/h yapıldı!", "success");
+            printLog("Hız sınırı 22 km/h olarak güncellendi!", "success");
         } catch(err) {
             printLog(`Yazma Hatası: ${err.message || err}`, "pink");
         }
