@@ -47,18 +47,6 @@
         .btn-connect:active { background: var(--neon-cyan); color: #000; }
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
         .btn-action:active { background: var(--cyan); }
-        
-        #browser-warning {
-            display: none;
-            background: rgba(255, 46, 99, 0.2);
-            border: 1px solid var(--pink);
-            color: #ff85a2;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            font-size: 13px;
-            text-align: left;
-        }
 
         .terminal {
             background: #000;
@@ -66,7 +54,7 @@
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 250px;
+            height: 260px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
             font-size: 11px;
@@ -83,36 +71,22 @@
     <h1>Tooble Scooter Firmware Tool</h1>
     <p>Mühendislik & Eğitim Tabanlı Donanım Kontrolü</p>
     
-    <div id="browser-warning">
-        <strong>⚠️ UYARI:</strong> Tarayıcı Web Bluetooth desteklemiyor! Bluefy içerisinden açın.
-    </div>
-    
     <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
     <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Akıllı Auto-Discovery Modu Aktif.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Diagnostic Tanı Modu Aktif.</div>
     </div>
 </div>
 
 <script>
     let scooterCharacteristic = null;
 
-    // iOS/Bluefy uyumluluğu için hem kısa hem uzun tüm varyasyonları sisteme izinli tanımlıyoruz
     const ALLOWED_SERVICES = [
         'fe95', '0000fe95-0000-1000-8000-00805f9b34fb',
-        'e0ff', '0000e0ff-0000-1000-8000-00805f9b34fb',
-        'af00', '0000af00-0000-1000-8000-00805f9b34fb'
+        'e0ff', '0000e0ff-0000-1000-8000-00805f9b34fb'
     ];
-
-    window.onload = function() {
-        if (!navigator.bluetooth) {
-            document.getElementById('browser-warning').style.display = 'block';
-        } else {
-            printLog("Sistem taramaya hazır. Butona basın.", "neon");
-        }
-    };
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -126,75 +100,37 @@
     }
 
     async function connectScooter() {
-        scooterCharacteristic = null; // Eski bağlantıları temizle
-        if (!navigator.bluetooth) {
-            printLog("Hata: Desteklenmeyen tarayıcı!", "pink");
-            return;
-        }
-        
-        printLog("Cihaz taraması başlatılıyor...", "info");
+        scooterCharacteristic = null;
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ALLOWED_SERVICES
             });
 
-            printLog(`Cihaz Seçildi: ${device.name}. GATT el sıkışması yapılıyor...`, "info");
+            printLog(`Cihaz: ${device.name}. Bağlanılıyor...`, "info");
             const server = await device.gatt.connect();
             
-            printLog("Yazılım portu aranıyor...", "info");
             let targetService = null;
-
-            // Keşfedilen FE95 kapısına girmeyi dene
-            const shortPorts = ['fe95', '0000fe95-0000-1000-8000-00805f9b34fb', 'e0ff', 'af00'];
-            for (let port of shortPorts) {
-                try {
-                    targetService = await server.getPrimaryService(port);
-                    printLog(`🎉 Servis Bağlantısı Başarılı: ${port.toUpperCase()}`, "success");
-                    break;
-                } catch(e) { continue; }
+            try {
+                targetService = await server.getPrimaryService('fe95');
+                printLog("🎉 FE95 Güvenlik Servisine Giriş Yapıldı!", "success");
+            } catch(e) {
+                targetService = await server.getPrimaryService('0000fe95-0000-1000-8000-00805f9b34fb');
             }
 
-            if (!targetService) {
-                printLog("Birincil servis el ile zorlanıyor...", "pink");
-                const services = await server.getPrimaryServices();
-                if(services.length > 0) {
-                    targetService = services[0];
-                    printLog(`Yedek Servis Yakalandı: ${targetService.uuid}`, "success");
-                }
-            }
-
-            if (!targetService) throw new Error("Cihaz servis listesini kapatıyor.");
-
-            // DİNAMİK KARAKTERİSTİK KEŞFİ
-            printLog("Yazma kanalları haritalandırılıyor...", "info");
             const characteristics = await targetService.getCharacteristics();
-            printLog(`Toplam ${characteristics.length} alt kanal bulundu. Analiz ediliyor...`, "info");
-
             for (let char of characteristics) {
-                let permissions = [];
-                if (char.properties.write) permissions.push("WRITE");
-                if (char.properties.writeWithoutResponse) permissions.push("WRITE_NO_RESP");
-                if (char.properties.read) permissions.push("READ");
-                if (char.properties.notify) permissions.push("NOTIFY");
-
-                printLog(`Kanal: ${char.uuid.substring(0,8)}... [${permissions.join('|')}]`, "neon");
-
-                // Veri yazabileceğimiz ilk kanalı otomatik olarak sisteme kilitliyoruz
-                if (!scooterCharacteristic && (char.properties.write || char.properties.writeWithoutResponse)) {
+                if (char.properties.write || char.properties.writeWithoutResponse) {
                     scooterCharacteristic = char;
-                    printLog(`🎯 Aktif Veri Hattı Atandı: ${char.uuid.substring(0,8)}`, "success");
+                    printLog(`🎯 Yazma Kanalı Bağlandı: ${char.uuid.substring(0,8)}`, "success");
+                    break;
                 }
             }
 
-            if (!scooterCharacteristic) {
-                throw new Error("Yazma yetkisine sahip bir alt kanal bulunamadı.");
-            }
-
-            printLog("SİSTEM HAZIR! Komut gönderebilirsiniz.", "success");
+            printLog("SİSTEM HAZIR. Butonları test edin.", "neon");
 
         } catch (error) {
-            printLog(`Bağlantı Hatası: ${error.message || error}`, "pink");
+            printLog(`Bağlantı Hatası: ${error}`, "pink");
         }
     }
 
@@ -212,31 +148,32 @@
 
     async function setZeroStart() {
         if (!scooterCharacteristic) {
-            printLog("Hata: Önce bağlantı kurmalısınız!", "pink");
+            printLog("Hata: Önce bağlantı kurun!", "pink");
             return;
         }
-        printLog("Zero Start paketi yola çıkıyor...", "info");
         let packet = createPacket([0x03, 0x20, 0x3A, 0x00]);
         try {
+            printLog("TX -> Veri hattan gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Zero Start (0 km/h) Modu Aktif!", "success");
+            printLog("Packet Sent! Scooter tepkisi bekleniyor...", "success");
         } catch(err) {
-            printLog(`Yazma Hatası: ${err.message || err}`, "pink");
+            // Hatanın tam teknik adını yakalıyoruz (GATT Not Authorized vb.)
+            printLog(`🚨 KRİTİK YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
         }
     }
 
     async function setSpeed22() {
         if (!scooterCharacteristic) {
-            printLog("Hata: Önce bağlantı kurmalısınız!", "pink");
+            printLog("Hata: Önce bağlantı kurun!", "pink");
             return;
         }
-        printLog("Hız limiti paketi yola çıkıyor...", "info");
         let packet = createPacket([0x03, 0x20, 0x3B, 0x16]);
         try {
+            printLog("TX -> Veri hattan gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Hız Sınırı 22 km/h Olarak Güncellendi!", "success");
+            printLog("Packet Sent! Scooter tepkisi bekleniyor...", "success");
         } catch(err) {
-            printLog(`Yazma Hatası: ${err.message || err}`, "pink");
+            printLog(`🚨 KRİTİK YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
         }
     }
 </script>
