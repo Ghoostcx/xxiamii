@@ -4,20 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tooble Scooter Firmware Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <style>
         :root {
             --bg-color: #0b0c10; --card-color: #1f2833; --cyan: #46a29f;
-            --neon-cyan: #66fcf1; --pink: #ff2e63; --success-green: #2ecc71;
+            --neon-cyan: #66fcf1; --pink: #ff2e63; --warning: #ff9f43;
         }
         body { font-family: 'Segoe UI', Tahoma, sans-serif; text-align: center; padding: 20px; background: var(--bg-color); color: #fff; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; background: var(--card-color); padding: 25px; border-radius: 15px; border: 1px solid #2f3b4c; }
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
-        button { width: 100%; padding: 14px; font-size: 15px; font-weight: bold; margin: 8px 0; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .token-box { margin: 15px 0 20px 0; text-align: left; }
+        .token-box label { font-size: 11px; color: var(--cyan); font-weight: bold; }
+        .token-box input { width: 100%; padding: 12px; margin-top: 6px; background: #000; border: 1px solid #2f3b4c; color: var(--neon-cyan); font-family: monospace; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 14px; font-size: 15px; font-weight: bold; margin: 6px 0; border: none; border-radius: 8px; cursor: pointer; }
         .btn-connect { background: var(--cyan); color: #fff; }
+        .btn-auth { background: var(--warning); color: #000; }
         .btn-action { background: #111; color: var(--neon-cyan); border: 1px solid var(--cyan); }
-        .btn-action:hover { background: var(--cyan); color: #000; }
-        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
+        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 260px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
     </style>
@@ -26,19 +30,25 @@
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi E-Scooter 5 • MiOT Kontrol Merkezi</p>
+    <p>Xiaomi 5 / Dreame Kripto El Sıkışma Modülü</p>
     
-    <button class="btn-connect" onclick="connectToXiaomi()">1. Scooter'a Bağlan (001c Hattı)</button>
-    <button class="btn-action" onclick="sendXiaomiCommand('zerostart')">2. Zero Start Aktif Et (0 km/h)</button>
-    <button class="btn-action" onclick="sendXiaomiCommand('speedlimit')">3. Hız Limitini Güncelle (22 km/h)</button>
+    <div class="token-box">
+        <label>Mi Cloud Bind Key (Token):</label>
+        <input type="text" id="beacon-token" value="1b312ff647fd86867d7d5dc3">
+    </div>
+
+    <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan (001c)</button>
+    <button class="btn-auth" onclick="startSecureHandshake()">🔐 2. Güvenli El Sıkışmayı Başlat</button>
+    <button class="btn-action" onclick="sendSecureCommand('zerostart')">3. Yetkili Zero Start Gönder</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Xiaomi MiOT sürücüsü hazır. Resmi kanal: 0x01</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Kripto el sıkışma katmanı yüklendi.</div>
     </div>
 </div>
 
 <script>
-    let xiaomiCharacteristic = null;
+    let scooterChar = null;
+    let serverChallenge = null;
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -47,82 +57,100 @@
         if (type === 'pink') color = '#ff2e63';
         if (type === 'neon') color = '#66fcf1';
         if (type === 'success') color = '#2ecc71';
+        if (type === 'warning') color = '#ff9f43';
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    async function connectToXiaomi() {
+    async function connectScooter() {
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ['fe95']
             });
 
-            printLog(`Cihaz Bulundu: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
-            const characteristics = await service.getCharacteristics();
+            scooterChar = await service.getCharacteristic('001c');
 
-            for (let char of characteristics) {
-                let fullUuid = char.uuid.toLowerCase();
-                let shortUuid = fullUuid.includes('-') ? fullUuid.split('-')[0].slice(-4) : fullUuid.slice(-4);
-                
-                if (shortUuid === '001c') {
-                    xiaomiCharacteristic = char;
-                    await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', (e) => {
-                        let value = e.target.value;
-                        let hexArray = [];
-                        for (let i = 0; i < value.byteLength; i++) {
-                            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
-                        }
-                        printLog(`📩 RX (Cevap): ${hexArray.join(' ')}`, "success");
-                    });
-                    printLog("🎯 Xiaomi 001c komut kanalı başarıyla bağlandı ve doğrulandı!", "neon");
-                }
-            }
+            await scooterChar.startNotifications();
+            scooterChar.addEventListener('characteristicvaluechanged', handleScooterResponse);
+            printLog("🎯 Kanal 001c bağlandı. Adım 2: El sıkışmayı başlatın.", "success");
+
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    // Xiaomi MiOT Write Property paket oluşturucu [01 + Tip + Uzunluk + Veri + Checksum]
-    function buildMiOTPacket(typeByte, payloadArray) {
-        let header = 0x01;
-        let len = payloadArray.length;
-        let packet = [header, typeByte, len];
-        packet = packet.concat(payloadArray);
-        
-        // Basit MiOT veri doğrulama toplamı (Checksum) ekleme
-        let checksum = 0;
-        for (let i = 0; i < packet.length; i++) {
-            checksum += packet[i];
+    // Scooter'dan gelen her yanıtı analiz eden ana fonksiyon
+    function handleScooterResponse(event) {
+        let value = event.target.value;
+        let hexArray = [];
+        for (let i = 0; i < value.byteLength; i++) {
+            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
         }
-        packet.push(checksum & 0xFF);
-        
-        return new Uint8Array(packet);
+        let responseHex = hexArray.join(' ');
+        printLog(`📩 RX: ${responseHex}`, "warning");
+
+        // EĞER yanıt bir el sıkışma meydan okumasıysa (Genelde 01 10 ile başlar ve uzundur)
+        if (hexArray[0] === '01' && hexArray.length > 8 && responseHex.includes("30 30") === false) {
+            // Scooter bize şifrelememiz için rastgele veri fırlattı!
+            serverChallenge = hexArray.slice(3); // Protokol başlıklarını kes, saf veriyi al
+            printLog(`🎲 Scooter'dan Rastgele Şifreleme Anahtarı (Challenge) Alındı!`, "neon");
+            processAndSendResponse(serverChallenge);
+        }
     }
 
-    async function sendXiaomiCommand(action) {
-        if (!xiaomiCharacteristic) return printLog("Hata: Önce scooter'a bağlanın!", "pink");
+    // Resmi MiOT el sıkışma isteği (Adım 2)
+    async function startSecureHandshake() {
+        if (!scooterChar) return printLog("Hata: Önce bağlantı kurun!", "pink");
+        
+        printLog("TX -> El sıkışma isteği (Challenge Request) gönderiliyor...", "info");
+        // Resmi Xiaomi BLE Auth token talep paketi şablonu
+        let authRequest = new Uint8Array([0x01, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
+        await scooterChar.writeValue(authRequest);
+    }
 
-        let packet;
-        if (action === 'zerostart') {
-            printLog("TX -> Zero Start (0 km/h) yapılandırması gönderiliyor...", "info");
-            // Tip: 0x03 (Ayar), Veri: [0x02, 0x01, 0x00] (Kalkış parametreleri)
-            packet = buildMiOTPacket(0x03, [0x02, 0x01, 0x00]);
-        } else if (action === 'speedlimit') {
-            printLog("TX -> Hız limiti (22 km/h) şablonu gönderiliyor...", "info");
-            // Tip: 0x04 (Performans), Veri: [0x22, 0x00] 
-            packet = buildMiOTPacket(0x04, [0x22, 0x00]);
-        }
+    // Alınan rastgele sayıyı Token ile AES şifreleme aşaması
+    async function processAndSendResponse(challengeBytes) {
+        let tokenInput = document.getElementById('beacon-token').value.trim();
+        printLog(`🔑 Elinizdeki Token kullanılıyor: ${tokenInput}`, "info");
 
         try {
-            await xiaomiCharacteristic.writeValue(packet);
-            let hexArray = Array.from(packet).map(b => b.toString(16).padStart(2, '0').toUpperCase());
-            printLog(`🚀 Paket İletildi: ${hexArray.join(' ')}`, "neon");
+            // CryptoJS için format dönüşümleri
+            let key = CryptoJS.enc.Hex.parse(tokenInput);
+            let hexChallenge = challengeBytes.join('');
+            let data = CryptoJS.enc.Hex.parse(hexChallenge);
+
+            // AES-128 ECB Modunda şifreleme (Xiaomi Güvenlik Standartı)
+            let encrypted = CryptoJS.AES.encrypt(data, key, {
+                mode: CryptoJS.mode.ECB,
+                padding: CryptoJS.pad.NoPadding
+            });
+
+            let encryptedHex = encrypted.ciphertext.toString(CryptoJS.enc.Hex).toUpperCase();
+            let encryptedBytes = encryptedHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16));
+
+            // Paket oluşturma: [0x01, 0x01 (Auth yanıtı), Uzunluk, ...Şifreli Veri...]
+            let responsePacket = new Uint8Array([0x01, 0x01, encryptedBytes.length].concat(encryptedBytes));
+            
+            printLog("🚀 AES ile imzalanmış Güvenlik Paketi scooter'a gönderiliyor...", "info");
+            await scooterChar.writeValue(responsePacket);
+            printLog("⚡ İmza iletildi! Scooter'ın onay vermesi bekleniyor...", "neon");
+
         } catch (err) {
-            printLog(`Gönderim Hatası: ${err.message}`, "pink");
+            printLog(`Kripto Hatası: ${err.message}`, "pink");
+        }
+    }
+
+    // Yetki alındıktan sonra gönderilecek gerçek komut fonksiyonu
+    async function sendSecureCommand(type) {
+        if (!scooterChar) return printLog("Hata: Bağlantı yok!", "pink");
+        
+        if (type === 'zerostart') {
+            printLog("TX -> Yetkili kalkış parametresi yazılıyor...", "info");
+            let cmd = new Uint8Array([0x01, 0x03, 0x03, 0x02, 0x01, 0x00, 0x07]); // Örnek MiOT imza paketi
+            await scooterChar.writeValue(cmd);
         }
     }
 </script>
