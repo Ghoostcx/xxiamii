@@ -11,6 +11,7 @@
             --cyan: #46a29f;
             --neon-cyan: #66fcf1;
             --pink: #ff2e63;
+            --warning-orange: #ff9f43;
         }
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -47,6 +48,22 @@
         .btn-connect:active { background: var(--neon-cyan); color: #000; }
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
         .btn-action:active { background: var(--cyan); }
+        
+        /* Dörtlü Flaşör Buton Stili */
+        .btn-hazard { 
+            background: rgba(255, 159, 67, 0.2); 
+            color: var(--warning-orange); 
+            border: 2px dashed var(--warning-orange); 
+        }
+        .btn-hazard.active {
+            background: var(--warning-orange);
+            color: #000;
+            animation: blinker 1s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% { opacity: 0.6; }
+        }
 
         .terminal {
             background: #000;
@@ -54,7 +71,7 @@
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 260px;
+            height: 240px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
             font-size: 11px;
@@ -74,14 +91,18 @@
     <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
     <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
+    
+    <button class="btn-hazard" id="hazard-btn" onclick="toggleHazards()">4. Dörtlüleri & Sesi Aç (Flaşör)</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Diagnostic Tanı Modu Aktif.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Flaşör ve Diagnostic Modu Entegre Edildi.</div>
     </div>
 </div>
 
 <script>
     let scooterCharacteristic = null;
+    let hazardsActive = false;
+    let hazardInterval = null;
 
     const ALLOWED_SERVICES = [
         'fe95', '0000fe95-0000-1000-8000-00805f9b34fb',
@@ -95,6 +116,7 @@
         if (type === 'pink') color = '#ff2e63';
         if (type === 'neon') color = '#66fcf1';
         if (type === 'success') color = '#2ecc71';
+        if (type === 'warning') color = '#ff9f43';
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
@@ -127,7 +149,7 @@
                 }
             }
 
-            printLog("SİSTEM HAZIR. Butonları test edin.", "neon");
+            printLog("SİSTEM HAZIR. Komutları gönderebilirsiniz.", "neon");
 
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error}`, "pink");
@@ -153,12 +175,11 @@
         }
         let packet = createPacket([0x03, 0x20, 0x3A, 0x00]);
         try {
-            printLog("TX -> Veri hattan gönderiliyor...", "info");
+            printLog("TX -> Zero Start gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Packet Sent! Scooter tepkisi bekleniyor...", "success");
+            printLog("Paket İletildi! Scooter yanıtı bekleniyor...", "success");
         } catch(err) {
-            // Hatanın tam teknik adını yakalıyoruz (GATT Not Authorized vb.)
-            printLog(`🚨 KRİTİK YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
+            printLog(`🚨 YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
         }
     }
 
@@ -169,11 +190,63 @@
         }
         let packet = createPacket([0x03, 0x20, 0x3B, 0x16]);
         try {
-            printLog("TX -> Veri hattan gönderiliyor...", "info");
+            printLog("TX -> Hız limiti gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Packet Sent! Scooter tepkisi bekleniyor...", "success");
+            printLog("Paket İletildi! Scooter yanıtı bekleniyor...", "success");
         } catch(err) {
-            printLog(`🚨 KRİTİK YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
+            printLog(`🚨 YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
+        }
+    }
+
+    // DÖRTLÜ FLAŞÖR VE SES TETİKLEME ALGORİTMASI
+    async function toggleHazards() {
+        if (!scooterCharacteristic) {
+            printLog("Hata: Önce bağlantı kurun!", "pink");
+            return;
+        }
+
+        const btn = document.getElementById('hazard-btn');
+
+        if (!hazardsActive) {
+            // Flaşörü Başlat
+            hazardsActive = true;
+            btn.classList.add('active');
+            btn.innerText = "Dörtlüleri & Sesi Kapat";
+            printLog("🚨 Dörtlü flaşör ve ses döngüsü başlatıldı!", "warning");
+
+            let toggleState = 0;
+            hazardInterval = setInterval(async () => {
+                try {
+                    let packet;
+                    if (toggleState === 0) {
+                        // Sinyalleri Aç + Buzzer Ses Çıkar Komutu (Hem ses hem ışık register'ı)
+                        // Xiaomi/Dreame uyumlu genel uyarı/bip ve ışık paketi varyasyonu
+                        packet = createPacket([0x03, 0x22, 0x78, 0x03]); 
+                        toggleState = 1;
+                    } else {
+                        // Kapatma komutu
+                        packet = createPacket([0x03, 0x22, 0x78, 0x00]); 
+                        toggleState = 0;
+                    }
+                    await scooterCharacteristic.writeValue(packet);
+                } catch (err) {
+                    printLog(`Flaşör Döngü Hatası: ${err.message}`, "pink");
+                }
+            }, 600); // Her 600 milisaniyede bir yanıp söner ve öter
+
+        } else {
+            // Flaşörü Durdur
+            hazardsActive = false;
+            clearInterval(hazardInterval);
+            btn.classList.remove('active');
+            btn.innerText = "4. Dörtlüleri & Sesi Aç (Flaşör)";
+            printLog("🛑 Flaşör döngüsü durduruldu.", "info");
+
+            // Son olarak her şeyi kapatma paketi gönderelim ki açık kalmasın
+            try {
+                let clearPacket = createPacket([0x03, 0x22, 0x78, 0x00]);
+                await scooterCharacteristic.writeValue(clearPacket);
+            } catch(e) {}
         }
     }
 </script>
