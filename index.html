@@ -3,140 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tooble Scooter Advanced Tool</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <title>Tooble MiOT Protocol Cracker</title>
     <style>
-        :root { --bg: #0b0c10; --card: #1f2833; --cyan: #46a29f; --neon: #66fcf1; --pink: #ff2e63; --orange: #ff9f43; }
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: var(--bg); color: #fff; padding: 20px; margin: 0; }
-        .container { max-width: 500px; margin: 0 auto; background: var(--card); padding: 25px; border-radius: 15px; border: 1px solid #2f3b4c; }
-        h1 { font-size: 22px; color: var(--neon); margin-bottom: 5px; }
-        p { color: #85929e; font-size: 13px; margin-top: 0; }
-        button { width: 100%; padding: 14px; font-size: 14px; font-weight: bold; margin: 6px 0; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        .btn-blue { background: var(--cyan); color: #fff; }
-        .btn-orange { background: var(--orange); color: #000; }
-        .btn-outline { background: #111; color: var(--neon); border: 1px solid var(--cyan); }
-        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
-        .log-entry { margin-bottom: 4px; line-height: 1.4; }
-        .log-time { color: #555; margin-right: 5px; }
+        :root { --bg: #0b0c10; --card: #1f2833; --neon: #66fcf1; --pink: #ff2e63; --yellow: #f1c40f; }
+        body { font-family: sans-serif; text-align: center; background: var(--bg); color: #fff; padding: 20px; }
+        .container { max-width: 450px; margin: 0 auto; background: var(--card); padding: 25px; border-radius: 12px; border: 1px solid #2f3b4c; }
+        button { width: 100%; padding: 12px; margin: 6px 0; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; }
+        .btn-main { background: #46a29f; color: white; }
+        .btn-prob { background: #111; color: var(--yellow); border: 1px solid var(--yellow); }
+        .terminal { background: #000; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-top: 15px; height: 250px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Tooble Scooter Advanced Tool</h1>
-    <p>Xiaomi E-Scooter 5 • Çift Kanal Güvenlik Çözücü</p>
+    <h2>Tooble MiOT Protocol Cracker</h2>
+    <p>Xiaomi E-Scooter 5 • Gelişmiş Paket Sürücüsü</p>
     
-    <button class="btn-blue" onclick="connectDualChannel()">1. Scooter'a Bağlan (001b & 001c Köprüsü)</button>
-    <button class="btn-orange" onclick="triggerHandshakeOnB()">🔐 2. El Sıkışmayı Başlat (Kanal 001b)</button>
-    <button class="btn-outline" onclick="testZeroStart()">3. Yetkili Zero Start Dene (Kanal 001c)</button>
+    <button class="btn-main" onclick="connectScooter()">1. Scooter'a Bağlan (001c)</button>
+    <button class="btn-prob" onclick="sendMiOTVaryasyon(1)">Varyasyon A (Standart Set)</button>
+    <button class="btn-prob" onclick="sendMiOTVaryasyon(2)">Varyasyon B (Sorgu Modu)</button>
+    <button class="btn-prob" onclick="sendMiOTVaryasyon(3)">Varyasyon C (Kalkış Kilidi Kırıcı)</button>
 
-    <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Hibrit MiOT sürücüsü aktif. Giriş bekleniyor...</div>
+    <div class="terminal" id="console">
+        <div>[Sistem] Test modülü hazır. Sadece 001c hattına odaklanılıyor.</div>
     </div>
 </div>
 
 <script>
-    let charB = null; // Auth Kanalı
-    let charC = null; // Data Kanalı
-    const token = "1b312ff647fd86867d7d5dc3";
+    let myChar = null;
 
-    function printLog(msg, type = 'info') {
-        const consoleEl = document.getElementById('terminal-console');
-        let color = '#fff';
-        if (type === 'pink') color = '#ff2e63';
-        if (type === 'neon') color = '#66fcf1';
-        if (type === 'orange') color = '#ff9f43';
-        if (type === 'green') color = '#2ecc71';
-        consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${new Date().toLocaleTimeString()}]</span> ${msg}</div>`;
-        consoleEl.scrollTop = consoleEl.scrollHeight;
+    function log(msg, color = '#fff') {
+        const c = document.getElementById('console');
+        c.innerHTML += `<div style="color: ${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        c.scrollTop = c.scrollHeight;
     }
 
-    async function connectDualChannel() {
+    async function connectScooter() {
         try {
-            printLog("Scooter aranıyor...", "info");
-            const device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true, optionalServices: ['fe95']
-            });
-            
+            const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['fe95'] });
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
-            const characteristics = await service.getCharacteristics();
-
-            for (let char of characteristics) {
-                let shortUuid = char.uuid.toLowerCase().slice(-4);
-                if (shortUuid === '001b') {
-                    charB = char;
-                    await charB.startNotifications();
-                    charB.addEventListener('characteristicvaluechanged', (e) => handleRx(e, 'Kanal 001b (AUTH)'));
-                    printLog("🔗 Kanal 001b (AUTH) dinlemeye alındı.", "green");
-                }
-                if (shortUuid === '001c') {
-                    charC = char;
-                    await charC.startNotifications();
-                    charC.addEventListener('characteristicvaluechanged', (e) => handleRx(e, 'Kanal 001c (DATA)'));
-                    printLog("🔗 Kanal 001c (DATA) dinlemeye alındı.", "green");
-                }
-            }
-            printLog("🚀 Çift yönlü hat kuruldu! Adım 2'ye geçebiliriz.", "neon");
-        } catch (err) {
-            printLog(`Bağlantı Hatası: ${err.message}`, "pink");
-        }
-    }
-
-    function handleRx(event, channelName) {
-        let value = event.target.value;
-        let hexArray = [];
-        for (let i = 0; i < value.byteLength; i++) {
-            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
-        }
-        let hexStr = hexArray.join(' ');
-        printLog(`📩 RX [${channelName}]: ${hexStr}`, "orange");
-
-        // Eğer dönen yanıt "0015" (30 30 31 35) DEĞİLSE ve anlamlı bir uzunluktaysa kripto motorunu çalıştır
-        if (!hexStr.includes("30 30 31 35") && hexArray.length > 4) {
-            printLog("🎲 Gerçek Challenge yakalandı! AES şifreleme başlatılıyor...", "neon");
-            processChallenge(hexArray.slice(2)); // İlk iki byte'ı (header) atla, datayı işle
-        }
-    }
-
-    async function triggerHandshakeOnB() {
-        if (!charB) return printLog("Hata: Önce bağlantı kurun!", "pink");
-        printLog("TX -> Kanal 001b üzerinden Auth tetikleniyor...", "info");
-        
-        // Standart MiOT Güvenli El Sıkışma başlatma paketi (0x01 0x00 ile başlar)
-        let req = new Uint8Array([0x01, 0x00, 0x04, 0xAA, 0xBB, 0xCC, 0xDD]);
-        await charB.writeValue(req);
-    }
-
-    async function processChallenge(challengeBytes) {
-        try {
-            let key = CryptoJS.enc.Hex.parse(token);
-            let data = CryptoJS.enc.Hex.parse(challengeBytes.join(''));
-
-            let encrypted = CryptoJS.AES.encrypt(data, key, {
-                mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.NoPadding
+            myChar = await service.getCharacteristic('001c');
+            await myChar.startNotifications();
+            myChar.addEventListener('characteristicvaluechanged', (e) => {
+                let buf = e.target.value;
+                let arr = [];
+                for (let i = 0; i < buf.byteLength; i++) arr.push(buf.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
+                log(`📩 RX: ${arr.join(' ')}`, '#2ecc71');
             });
-
-            let encryptedHex = encrypted.ciphertext.toString(CryptoJS.enc.Hex).toUpperCase();
-            let encryptedBytes = encryptedHex.match(/.{1,2}/g).map(b => parseInt(b, 16));
-
-            // Auth yanıt paketi: [0x01, 0x01, uzunluk, ...şifreli veri...]
-            let responsePacket = new Uint8Array([0x01, 0x01, encryptedBytes.length].concat(encryptedBytes));
-            
-            printLog("🚀 İmza paketi Kanal 001b'ye geri iade ediliyor...", "info");
-            await charB.writeValue(responsePacket);
-        } catch (err) {
-            printLog(`Kripto Hatası: ${err.message}`, "pink");
-        }
+            log("🎯 001c Hattı bağlandı! Varyasyonları sırayla deneyebiliriz.", "#66fcf1");
+        } catch (err) { log(`Hata: ${err.message}`, '#ff2e63'); }
     }
 
-    async function testZeroStart() {
-        if (!charC) return printLog("Hata: Kanal 001c hazır değil!", "pink");
-        printLog("TX -> Kanal 001c'ye yetkili Zero Start komutu gönderiliyor...", "info");
-        let cmd = new Uint8Array([0x01, 0x03, 0x03, 0x02, 0x01, 0x00, 0x07]);
-        await charC.writeValue(cmd);
+    async function sendMiOTVaryasyon(type) {
+        if (!myChar) return log("Önce scooter'a bağlanın!", "#ff2e63");
+        let pkt;
+        
+        if (type === 1) {
+            // [Header, Opcode(Set), Siid(3), Piid(3), ValueType, Value] + Keskin uzunluk kontrolü
+            pkt = new Uint8Array([0x01, 0x02, 0x03, 0x03, 0x01, 0x01]);
+            log("TX -> Varyasyon A (Standart Set) gönderiliyor...");
+        } else if (type === 2) {
+            // MiOT RPC formatı (Geri bildirim isteme metodu)
+            pkt = new Uint8Array([0x01, 0x01, 0x01, 0x03, 0x02]);
+            log("TX -> Varyasyon B (Sorgu Modu) gönderiliyor...");
+        } else if (type === 3) {
+            // Dreame işlemcileri için özel haritalandırılmış direkt tetikleyici paket
+            pkt = new Uint8Array([0x01, 0x03, 0x02, 0x01, 0x00, 0x00, 0x00]);
+            log("TX -> Varyasyon C (Kalkış Kilidi Kırıcı) gönderiliyor...");
+        }
+
+        try {
+            await myChar.writeValue(pkt);
+        } catch (e) { log(`Gönderim Hatası: ${e.message}`, '#ff2e63'); }
     }
 </script>
-
 </body>
 </html>
