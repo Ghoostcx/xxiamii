@@ -13,40 +13,41 @@
         .container { max-width: 500px; margin: 0 auto; background: var(--card-color); padding: 25px; border-radius: 15px; border: 1px solid #2f3b4c; }
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
-        .token-box { margin: 15px 0 20px 0; text-align: left; }
-        .token-box label { font-size: 11px; color: var(--cyan); font-weight: bold; }
-        .token-box input { width: 100%; padding: 12px; margin-top: 6px; background: #000; border: 1px solid #2f3b4c; color: var(--neon-cyan); font-family: monospace; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 14px; font-size: 16px; font-weight: bold; margin: 6px 0; border: none; border-radius: 8px; cursor: pointer; }
+        button { width: 100%; padding: 14px; font-size: 15px; font-weight: bold; margin: 6px 0; border: none; border-radius: 8px; cursor: pointer; }
         .btn-connect { background: var(--cyan); color: #fff; }
-        .btn-auth { background: var(--warning-orange); color: #000; }
-        .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
-        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
+        .btn-probe { background: var(--warning-orange); color: #000; font-family: monospace; }
+        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi 5 / Dreame Kripto Prob Modülü</p>
+    <p>Xiaomi 5 / Dreame Protokol Duvarı Kırıcı</p>
     
-    <div class="token-box">
-        <label>Mi Cloud Bind Key (Token):</label>
-        <input type="text" id="beacon-token" value="1b312ff647fd86867d7d5dc3">
+    <button class="btn-connect" onclick="connectAndListen()">1. Scooter'a Bağlan (001c Dinle)</button>
+    
+    <div style="margin-top: 15px; text-align: left; font-size: 12px; color: var(--neon-cyan);">
+        2. Test Edilecek Protokol Başlıkları:
+    </div>
+    
+    <div class="grid">
+        <button class="btn-probe" onclick="testTargetHeader(0x5A)">Test: 5A (Ninebot Yeni)</button>
+        <button class="btn-probe" onclick="testTargetHeader(0xA5)">Test: A5 (Ninebot Ters)</button>
+        <button class="btn-probe" onclick="testTargetHeader(0x01)">Test: 01 (MiOT Standart)</button>
+        <button class="btn-probe" onclick="testTargetHeader(0x10)">Test: 10 (MiOT Güvenli)</button>
     </div>
 
-    <button class="btn-connect" onclick="connectAndMap()">1. Kanalları Dinle & Bağlan</button>
-    <button class="btn-auth" onclick="probeCryptoEngine()">⚡ 2. Kripto Motorunu Tetikle (Prob)</button>
-    <button class="btn-action" onclick="forceZeroStart()">3. Zorlamalı Komut Dene</button>
-
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Kripto analiz hazır.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Filtre bypass modülü devrede.</div>
     </div>
 </div>
 
 <script>
-    let activeCharacteristics = {};
+    let targetCharacteristic = null;
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -60,92 +61,66 @@
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    async function connectAndMap() {
+    async function connectAndListen() {
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ['fe95']
             });
 
-            printLog(`Cihaz: ${device.name}`, "info");
+            printLog(`Bağlanılıyor: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
             const characteristics = await service.getCharacteristics();
-
-            activeCharacteristics = {};
 
             for (let char of characteristics) {
                 let fullUuid = char.uuid.toLowerCase();
                 let shortUuid = fullUuid.includes('-') ? fullUuid.split('-')[0].slice(-4) : fullUuid.slice(-4);
                 
-                activeCharacteristics[shortUuid] = char;
-
-                if (char.properties.notify) {
+                if (shortUuid === '001c') {
+                    targetCharacteristic = char;
                     await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', (e) => {
-                        let value = e.target.value;
-                        let hexArray = [];
-                        for (let i = 0; i < value.byteLength; i++) {
-                            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
-                        }
-                        printLog(`📩 RX [Kanal ${shortUuid}]: ${hexArray.join(' ')}`, "warning");
-                    });
-                    printLog(`📍 Kanal [${shortUuid}] aktif.`, "success");
+                    char.addEventListener('characteristicvaluechanged', handleResponse);
+                    printLog("🎯 Kilitli kanal [001c] başarıyla dinlemeye alındı!", "success");
                 }
             }
-            printLog("🎯 Hatlar bağlandı. Adım 2 ile kripto probu başlatın.", "neon");
+            if(!targetCharacteristic) printLog("Hata: 001c kanalı bulunamadı!", "pink");
 
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    // YENİ STRATEJİ: Ham paketlerle el sıkışmayı zorlama
-    async function probeCryptoEngine() {
-        let charB = activeCharacteristics['001b'];
-        let charC = activeCharacteristics['001c'];
+    function handleResponse(event) {
+        let value = event.target.value;
+        let hexArray = [];
+        for (let i = 0; i < value.byteLength; i++) {
+            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
+        }
+        let fullHex = hexArray.join(' ');
         
-        if (!charB && !charC) return printLog("Hata: Önce bağlantı kurun!", "pink");
-
-        try {
-            // Adım A: Şifresiz, tamamen yalın başlatma byte'ını 001b kanalına fırlatıyoruz
-            if (charB) {
-                printLog("TX -> [001b] kanalına ham auth isteği yollanıyor...", "info");
-                await charB.writeValue(new Uint8Array([0x01, 0x00]));
-            }
-            
-            // Adım B: Aynı ham isteği 001c kanalına da yolluyoruz
-            if (charC) {
-                printLog("TX -> [001c] kanalına ham auth isteği yollanıyor...", "info");
-                await charC.writeValue(new Uint8Array([0x02, 0x00]));
-            }
-
-            printLog("⚡ Problar iletildi. Farklı bir RX yanıtı gelip gelmediğini loglardan inceleyin.", "neon");
-        } catch (err) {
-            printLog(`Prob Hatası: ${err.message}`, "pink");
+        // Eğer yanıt hala klasik reddetme şablonuysa uyarı rengi ver
+        if (fullHex.startsWith("FF 02") && fullHex.endsWith("02")) {
+            printLog(`🚨 Duvar Reddi -> RX: ${fullHex}`, "pink");
+        } else {
+            // DUVAR YIKILDI! Farklı bir yanıt geldi!
+            printLog(`🔓 DUVAR GEÇİLDİ! -> RX: ${fullHex}`, "success");
         }
     }
 
-    function createPacket(payload) {
-        let header = [0x55, 0xAA];
-        let len = payload.length;
-        let packet = header.concat([len], payload);
-        let sum = 0;
-        for(let i = 2; i < packet.length; i++) sum += packet[i];
-        let checksum = (sum ^ 0xFFFF) & 0xFFFF;
-        packet.push(checksum & 0xFF); packet.push((checksum >> 8) & 0xFF);
-        return new Uint8Array(packet);
-    }
-
-    async function forceZeroStart() {
-        let charC = activeCharacteristics['001c'];
-        if (!charC) return printLog("Hata: Kanal bulunamadı!", "pink");
+    async function testTargetHeader(headerByte) {
+        if (!targetCharacteristic) return printLog("Hata: Önce scooter'a bağlanın!", "pink");
+        
+        // Gönderilecek test paketi: [Seçilen Başlık, 0x00, 0x00, 0x00]
+        let testPayload = new Uint8Array([headerByte, 0x00, 0x00, 0x00]);
+        let hexString = headerByte.toString(16).toUpperCase().padStart(2, '0');
+        
+        printLog(`TX -> [001c] kanalına 0x${hexString} başlığı zorlanıyor...`, "info");
         try {
-            // Alternatif bir kayıt bölgesi denemesi
-            let cmd = createPacket([0x03, 0x22, 0x3A, 0x00]); 
-            await charC.writeValue(cmd);
-            printLog("TX -> Alternatif Zero Start gönderildi.", "info");
-        } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
+            await targetCharacteristic.writeValue(testPayload);
+        } catch (err) {
+            printLog(`Gönderim Hatası: ${err.message}`, "pink");
+        }
     }
 </script>
 
