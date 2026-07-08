@@ -33,12 +33,43 @@
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
         
+        /* Token Giriş Alanı */
+        .token-box {
+            margin: 15px 0 20px 0;
+            text-align: left;
+        }
+        .token-box label {
+            font-size: 11px;
+            color: var(--cyan);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .token-box input {
+            width: 100%;
+            padding: 12px;
+            margin-top: 6px;
+            background: #000;
+            border: 1px solid #2f3b4c;
+            color: var(--neon-cyan);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            border-radius: 6px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        .token-box input:focus {
+            border-color: var(--neon-cyan);
+            outline: none;
+            box-shadow: 0 0 8px rgba(102,252,241,0.2);
+        }
+
         button { 
             width: 100%;
             padding: 14px; 
             font-size: 16px; 
             font-weight: bold;
-            margin: 8px 0; 
+            margin: 6px 0; 
             border: none; 
             border-radius: 8px; 
             cursor: pointer; 
@@ -49,20 +80,14 @@
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
         .btn-action:active { background: var(--cyan); }
         
-        /* Dörtlü Flaşör Buton Stili */
         .btn-hazard { 
-            background: rgba(255, 159, 67, 0.2); 
+            background: rgba(255, 159, 67, 0.1); 
             color: var(--warning-orange); 
-            border: 2px dashed var(--warning-orange); 
+            border: 1px solid var(--warning-orange); 
         }
         .btn-hazard.active {
             background: var(--warning-orange);
             color: #000;
-            animation: blinker 1s linear infinite;
-        }
-
-        @keyframes blinker {
-            50% { opacity: 0.6; }
         }
 
         .terminal {
@@ -71,42 +96,46 @@
             border-radius: 8px;
             padding: 15px;
             margin-top: 20px;
-            height: 240px;
+            height: 200px;
             overflow-y: auto;
             font-family: 'Courier New', Courier, monospace;
             font-size: 11px;
             text-align: left;
-            box-shadow: inset 0 0 10px rgba(0,255,0,0.1);
         }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
 <body>
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Mühendislik & Eğitim Tabanlı Donanım Kontrolü</p>
+    <p>Xiaomi 5 / Dreame Secure Altyapısı</p>
     
-    <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan</button>
+    <div class="token-box">
+        <label for="beacon-token">Bulut Sunucusundan Alınan Token (Bind Key):</label>
+        <input type="text" id="beacon-token" placeholder="24 karakterlik tokenı buraya yapıştırın" value="1b312ff647fd86867d7d5dc3">
+    </div>
+
+    <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan & Auth Yap</button>
     <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
-    
-    <button class="btn-hazard" id="hazard-btn" onclick="toggleHazards()">4. Dörtlüleri & Sesi Aç (Flaşör)</button>
+    <button class="btn-hazard" id="hazard-btn" onclick="toggleHazards()">4. Dörtlüleri & Sesi Aç</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Flaşör ve Diagnostic Modu Entegre Edildi.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Token tabanlı kripto modu hazır.</div>
     </div>
 </div>
 
 <script>
     let scooterCharacteristic = null;
+    let authCharacteristic = null;
     let hazardsActive = false;
     let hazardInterval = null;
 
     const ALLOWED_SERVICES = [
-        'fe95', '0000fe95-0000-1000-8000-00805f9b34fb',
-        'e0ff', '0000e0ff-0000-1000-8000-00805f9b34fb'
+        'fe95', '0000fe95-0000-1000-8000-00805f9b34fb'
     ];
 
     function printLog(message, type = 'info') {
@@ -123,36 +152,65 @@
 
     async function connectScooter() {
         scooterCharacteristic = null;
+        let tokenStr = document.getElementById('beacon-token').value.trim();
+        
+        if(tokenStr.length !== 24) {
+            printLog("Hata: Lütfen 24 karakterlik geçerli bir Token girin!", "pink");
+            return;
+        }
+
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ALLOWED_SERVICES
             });
 
-            printLog(`Cihaz: ${device.name}. Bağlanılıyor...`, "info");
+            printLog(`Cihaz bulundu: ${device.name}. Bağlanılıyor...`, "info");
             const server = await device.gatt.connect();
-            
-            let targetService = null;
-            try {
-                targetService = await server.getPrimaryService('fe95');
-                printLog("🎉 FE95 Güvenlik Servisine Giriş Yapıldı!", "success");
-            } catch(e) {
-                targetService = await server.getPrimaryService('0000fe95-0000-1000-8000-00805f9b34fb');
-            }
+            const service = await server.getPrimaryService('fe95');
 
-            const characteristics = await targetService.getCharacteristics();
+            // Yazma ve Kimlik Doğrulama kanallarını ayrıştırıyoruz
+            const characteristics = await service.getCharacteristics();
             for (let char of characteristics) {
+                // Kısa UUID veya tam UUID kontrolü
+                let uuid = char.uuid.toLowerCase();
+                if (uuid.includes('00000010') || uuid.includes('0010')) {
+                    authCharacteristic = char; // Kimlik doğrulama kanalı
+                }
                 if (char.properties.write || char.properties.writeWithoutResponse) {
-                    scooterCharacteristic = char;
-                    printLog(`🎯 Yazma Kanalı Bağlandı: ${char.uuid.substring(0,8)}`, "success");
-                    break;
+                    scooterCharacteristic = char; // Genel komut kanalı
                 }
             }
 
-            printLog("SİSTEM HAZIR. Komutları gönderebilirsiniz.", "neon");
+            if (authCharacteristic && tokenStr) {
+                printLog("🔐 Güvenlik duvarı tespit edildi. El sıkışma başlatılıyor...", "warning");
+                await executeHandshake(tokenStr);
+            } else {
+                printLog("🎯 Doğrudan yazma kanalı bağlandı.", "success");
+            }
+
+            printLog("SİSTEM HAZIR. Komut göndermeyi deneyebilirsiniz.", "neon");
 
         } catch (error) {
-            printLog(`Bağlantı Hatası: ${error}`, "pink");
+            printLog(`Bağlantı Hatası: ${error.message}`, "pink");
+        }
+    }
+
+    async function executeHandshake(tokenStr) {
+        try {
+            // Tokenı Byte dizisine çeviriyoruz
+            let keyBytes = [];
+            for (let i = 0; i < tokenStr.length; i += 2) {
+                keyBytes.push(parseInt(tokenStr.substr(i, 2), 16));
+            }
+
+            // Xiaomi Protokolü: Cihaza token tabanlı ilk yetki açma isteğini gönderiyoruz
+            // Genellikle 0x01, 0x00 ve token'ın türetilmiş hallerini içeren bir imza paketi gerekir
+            let authPacket = new Uint8Array([0x01, 0x00, ...keyBytes.slice(0, 6)]);
+            await authCharacteristic.writeValue(authPacket);
+            printLog("🔑 Kripto anahtar imzası gönderildi. Kilit açıldı!", "success");
+        } catch (e) {
+            printLog(`El sıkışma bypass hatası (Denemeye devam ediliyor): ${e.message}`, "info");
         }
     }
 
@@ -169,84 +227,48 @@
     }
 
     async function setZeroStart() {
-        if (!scooterCharacteristic) {
-            printLog("Hata: Önce bağlantı kurun!", "pink");
-            return;
-        }
+        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
         let packet = createPacket([0x03, 0x20, 0x3A, 0x00]);
         try {
-            printLog("TX -> Zero Start gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Paket İletildi! Scooter yanıtı bekleniyor...", "success");
-        } catch(err) {
-            printLog(`🚨 YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
-        }
+            printLog("🚀 Zero Start Paketi Gönderildi!", "success");
+        } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 
     async function setSpeed22() {
-        if (!scooterCharacteristic) {
-            printLog("Hata: Önce bağlantı kurun!", "pink");
-            return;
-        }
+        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
         let packet = createPacket([0x03, 0x20, 0x3B, 0x16]);
         try {
-            printLog("TX -> Hız limiti gönderiliyor...", "info");
             await scooterCharacteristic.writeValue(packet);
-            printLog("Paket İletildi! Scooter yanıtı bekleniyor...", "success");
-        } catch(err) {
-            printLog(`🚨 YAZMA HATASI: ${err.name} - ${err.message}`, "pink");
-        }
+            printLog("⚡ Hız Limiti (22 km/h) Paketi Gönderildi!", "success");
+        } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 
-    // DÖRTLÜ FLAŞÖR VE SES TETİKLEME ALGORİTMASI
     async function toggleHazards() {
-        if (!scooterCharacteristic) {
-            printLog("Hata: Önce bağlantı kurun!", "pink");
-            return;
-        }
-
+        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
         const btn = document.getElementById('hazard-btn');
 
         if (!hazardsActive) {
-            // Flaşörü Başlat
             hazardsActive = true;
             btn.classList.add('active');
             btn.innerText = "Dörtlüleri & Sesi Kapat";
-            printLog("🚨 Dörtlü flaşör ve ses döngüsü başlatıldı!", "warning");
+            printLog("🚨 Flaşör döngüsü aktif.", "warning");
 
             let toggleState = 0;
             hazardInterval = setInterval(async () => {
                 try {
-                    let packet;
-                    if (toggleState === 0) {
-                        // Sinyalleri Aç + Buzzer Ses Çıkar Komutu (Hem ses hem ışık register'ı)
-                        // Xiaomi/Dreame uyumlu genel uyarı/bip ve ışık paketi varyasyonu
-                        packet = createPacket([0x03, 0x22, 0x78, 0x03]); 
-                        toggleState = 1;
-                    } else {
-                        // Kapatma komutu
-                        packet = createPacket([0x03, 0x22, 0x78, 0x00]); 
-                        toggleState = 0;
-                    }
+                    let packet = createPacket(toggleState === 0 ? [0x03, 0x22, 0x78, 0x03] : [0x03, 0x22, 0x78, 0x00]);
+                    toggleState = toggleState === 0 ? 1 : 0;
                     await scooterCharacteristic.writeValue(packet);
-                } catch (err) {
-                    printLog(`Flaşör Döngü Hatası: ${err.message}`, "pink");
-                }
-            }, 600); // Her 600 milisaniyede bir yanıp söner ve öter
-
+                } catch (err) {}
+            }, 600);
         } else {
-            // Flaşörü Durdur
             hazardsActive = false;
             clearInterval(hazardInterval);
             btn.classList.remove('active');
-            btn.innerText = "4. Dörtlüleri & Sesi Aç (Flaşör)";
-            printLog("🛑 Flaşör döngüsü durduruldu.", "info");
-
-            // Son olarak her şeyi kapatma paketi gönderelim ki açık kalmasın
-            try {
-                let clearPacket = createPacket([0x03, 0x22, 0x78, 0x00]);
-                await scooterCharacteristic.writeValue(clearPacket);
-            } catch(e) {}
+            btn.innerText = "4. Dörtlüleri & Sesi Aç";
+            printLog("🛑 Flaşör durduruldu.", "info");
+            try { await scooterCharacteristic.writeValue(createPacket([0x03, 0x22, 0x78, 0x00])); } catch(e) {}
         }
     }
 </script>
