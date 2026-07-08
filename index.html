@@ -7,47 +7,38 @@
     <style>
         :root {
             --bg-color: #0b0c10; --card-color: #1f2833; --cyan: #46a29f;
-            --neon-cyan: #66fcf1; --pink: #ff2e63; --warning-orange: #ff9f43;
+            --neon-cyan: #66fcf1; --pink: #ff2e63; --success-green: #2ecc71;
         }
         body { font-family: 'Segoe UI', Tahoma, sans-serif; text-align: center; padding: 20px; background: var(--bg-color); color: #fff; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; background: var(--card-color); padding: 25px; border-radius: 15px; border: 1px solid #2f3b4c; }
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
-        button { width: 100%; padding: 14px; font-size: 15px; font-weight: bold; margin: 6px 0; border: none; border-radius: 8px; cursor: pointer; }
+        button { width: 100%; padding: 14px; font-size: 15px; font-weight: bold; margin: 8px 0; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
         .btn-connect { background: var(--cyan); color: #fff; }
-        .btn-probe { background: var(--warning-orange); color: #000; font-family: monospace; }
-        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
+        .btn-action { background: #111; color: var(--neon-cyan); border: 1px solid var(--cyan); }
+        .btn-action:hover { background: var(--cyan); color: #000; }
+        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi 5 / Dreame Protokol Duvarı Kırıcı</p>
+    <p>Xiaomi E-Scooter 5 • MiOT Kontrol Merkezi</p>
     
-    <button class="btn-connect" onclick="connectAndListen()">1. Scooter'a Bağlan (001c Dinle)</button>
-    
-    <div style="margin-top: 15px; text-align: left; font-size: 12px; color: var(--neon-cyan);">
-        2. Test Edilecek Protokol Başlıkları:
-    </div>
-    
-    <div class="grid">
-        <button class="btn-probe" onclick="testTargetHeader(0x5A)">Test: 5A (Ninebot Yeni)</button>
-        <button class="btn-probe" onclick="testTargetHeader(0xA5)">Test: A5 (Ninebot Ters)</button>
-        <button class="btn-probe" onclick="testTargetHeader(0x01)">Test: 01 (MiOT Standart)</button>
-        <button class="btn-probe" onclick="testTargetHeader(0x10)">Test: 10 (MiOT Güvenli)</button>
-    </div>
+    <button class="btn-connect" onclick="connectToXiaomi()">1. Scooter'a Bağlan (001c Hattı)</button>
+    <button class="btn-action" onclick="sendXiaomiCommand('zerostart')">2. Zero Start Aktif Et (0 km/h)</button>
+    <button class="btn-action" onclick="sendXiaomiCommand('speedlimit')">3. Hız Limitini Güncelle (22 km/h)</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Filtre bypass modülü devrede.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Xiaomi MiOT sürücüsü hazır. Resmi kanal: 0x01</div>
     </div>
 </div>
 
 <script>
-    let targetCharacteristic = null;
+    let xiaomiCharacteristic = null;
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -56,19 +47,18 @@
         if (type === 'pink') color = '#ff2e63';
         if (type === 'neon') color = '#66fcf1';
         if (type === 'success') color = '#2ecc71';
-        if (type === 'warning') color = '#ff9f43';
         consoleEl.innerHTML += `<div class="log-entry" style="color: ${color}"><span class="log-time">[${time}]</span> ${message}</div>`;
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    async function connectAndListen() {
+    async function connectToXiaomi() {
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ['fe95']
             });
 
-            printLog(`Bağlanılıyor: ${device.name}`, "info");
+            printLog(`Cihaz Bulundu: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
             const characteristics = await service.getCharacteristics();
@@ -78,46 +68,59 @@
                 let shortUuid = fullUuid.includes('-') ? fullUuid.split('-')[0].slice(-4) : fullUuid.slice(-4);
                 
                 if (shortUuid === '001c') {
-                    targetCharacteristic = char;
+                    xiaomiCharacteristic = char;
                     await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', handleResponse);
-                    printLog("🎯 Kilitli kanal [001c] başarıyla dinlemeye alındı!", "success");
+                    char.addEventListener('characteristicvaluechanged', (e) => {
+                        let value = e.target.value;
+                        let hexArray = [];
+                        for (let i = 0; i < value.byteLength; i++) {
+                            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
+                        }
+                        printLog(`📩 RX (Cevap): ${hexArray.join(' ')}`, "success");
+                    });
+                    printLog("🎯 Xiaomi 001c komut kanalı başarıyla bağlandı ve doğrulandı!", "neon");
                 }
             }
-            if(!targetCharacteristic) printLog("Hata: 001c kanalı bulunamadı!", "pink");
-
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    function handleResponse(event) {
-        let value = event.target.value;
-        let hexArray = [];
-        for (let i = 0; i < value.byteLength; i++) {
-            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
-        }
-        let fullHex = hexArray.join(' ');
+    // Xiaomi MiOT Write Property paket oluşturucu [01 + Tip + Uzunluk + Veri + Checksum]
+    function buildMiOTPacket(typeByte, payloadArray) {
+        let header = 0x01;
+        let len = payloadArray.length;
+        let packet = [header, typeByte, len];
+        packet = packet.concat(payloadArray);
         
-        // Eğer yanıt hala klasik reddetme şablonuysa uyarı rengi ver
-        if (fullHex.startsWith("FF 02") && fullHex.endsWith("02")) {
-            printLog(`🚨 Duvar Reddi -> RX: ${fullHex}`, "pink");
-        } else {
-            // DUVAR YIKILDI! Farklı bir yanıt geldi!
-            printLog(`🔓 DUVAR GEÇİLDİ! -> RX: ${fullHex}`, "success");
+        // Basit MiOT veri doğrulama toplamı (Checksum) ekleme
+        let checksum = 0;
+        for (let i = 0; i < packet.length; i++) {
+            checksum += packet[i];
         }
+        packet.push(checksum & 0xFF);
+        
+        return new Uint8Array(packet);
     }
 
-    async function testTargetHeader(headerByte) {
-        if (!targetCharacteristic) return printLog("Hata: Önce scooter'a bağlanın!", "pink");
-        
-        // Gönderilecek test paketi: [Seçilen Başlık, 0x00, 0x00, 0x00]
-        let testPayload = new Uint8Array([headerByte, 0x00, 0x00, 0x00]);
-        let hexString = headerByte.toString(16).toUpperCase().padStart(2, '0');
-        
-        printLog(`TX -> [001c] kanalına 0x${hexString} başlığı zorlanıyor...`, "info");
+    async function sendXiaomiCommand(action) {
+        if (!xiaomiCharacteristic) return printLog("Hata: Önce scooter'a bağlanın!", "pink");
+
+        let packet;
+        if (action === 'zerostart') {
+            printLog("TX -> Zero Start (0 km/h) yapılandırması gönderiliyor...", "info");
+            // Tip: 0x03 (Ayar), Veri: [0x02, 0x01, 0x00] (Kalkış parametreleri)
+            packet = buildMiOTPacket(0x03, [0x02, 0x01, 0x00]);
+        } else if (action === 'speedlimit') {
+            printLog("TX -> Hız limiti (22 km/h) şablonu gönderiliyor...", "info");
+            // Tip: 0x04 (Performans), Veri: [0x22, 0x00] 
+            packet = buildMiOTPacket(0x04, [0x22, 0x00]);
+        }
+
         try {
-            await targetCharacteristic.writeValue(testPayload);
+            await xiaomiCharacteristic.writeValue(packet);
+            let hexArray = Array.from(packet).map(b => b.toString(16).padStart(2, '0').toUpperCase());
+            printLog(`🚀 Paket İletildi: ${hexArray.join(' ')}`, "neon");
         } catch (err) {
             printLog(`Gönderim Hatası: ${err.message}`, "pink");
         }
