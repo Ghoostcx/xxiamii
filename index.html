@@ -33,98 +33,48 @@
         h1 { font-size: 24px; color: var(--neon-cyan); margin-bottom: 5px; }
         p { color: #85929e; font-size: 14px; margin-top: 0; }
         
-        /* Token Giriş Alanı */
-        .token-box {
-            margin: 15px 0 20px 0;
-            text-align: left;
-        }
-        .token-box label {
-            font-size: 11px;
-            color: var(--cyan);
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+        .token-box { margin: 15px 0 20px 0; text-align: left; }
+        .token-box label { font-size: 11px; color: var(--cyan); font-weight: bold; text-transform: uppercase; }
         .token-box input {
-            width: 100%;
-            padding: 12px;
-            margin-top: 6px;
-            background: #000;
-            border: 1px solid #2f3b4c;
-            color: var(--neon-cyan);
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 14px;
-            border-radius: 6px;
-            box-sizing: border-box;
-            transition: all 0.3s ease;
-        }
-        .token-box input:focus {
-            border-color: var(--neon-cyan);
-            outline: none;
-            box-shadow: 0 0 8px rgba(102,252,241,0.2);
+            width: 100%; padding: 12px; margin-top: 6px; background: #000; border: 1px solid #2f3b4c;
+            color: var(--neon-cyan); font-family: 'Courier New', Courier, monospace; font-size: 14px; border-radius: 6px; box-sizing: border-box;
         }
 
         button { 
-            width: 100%;
-            padding: 14px; 
-            font-size: 16px; 
-            font-weight: bold;
-            margin: 6px 0; 
-            border: none; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            transition: all 0.3s ease;
+            width: 100%; padding: 14px; font-size: 16px; font-weight: bold; margin: 6px 0; 
+            border: none; border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
         }
         .btn-connect { background: var(--cyan); color: #fff; box-shadow: 0 4px 15px rgba(70,162,159,0.3); }
-        .btn-connect:active { background: var(--neon-cyan); color: #000; }
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
-        .btn-action:active { background: var(--cyan); }
-        
-        .btn-hazard { 
-            background: rgba(255, 159, 67, 0.1); 
-            color: var(--warning-orange); 
-            border: 1px solid var(--warning-orange); 
-        }
-        .btn-hazard.active {
-            background: var(--warning-orange);
-            color: #000;
-        }
+        .btn-hazard { background: rgba(255, 159, 67, 0.1); color: var(--warning-orange); border: 1px solid var(--warning-orange); }
+        .btn-hazard.active { background: var(--warning-orange); color: #000; }
 
         .terminal {
-            background: #000;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 20px;
-            height: 200px;
-            overflow-y: auto;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
-            text-align: left;
+            background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px;
+            margin-top: 20px; height: 220px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; font-size: 11px; text-align: left;
         }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
 <body>
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi 5 / Dreame Secure Altyapısı</p>
+    <p>Xiaomi 5 / Dreame Protokol Analizörü</p>
     
     <div class="token-box">
-        <label for="beacon-token">Bulut Sunucusundan Alınan Token (Bind Key):</label>
-        <input type="text" id="beacon-token" placeholder="24 karakterlik tokenı buraya yapıştırın" value="1b312ff647fd86867d7d5dc3">
+        <label>Mi Cloud Bind Key (Token):</label>
+        <input type="text" id="beacon-token" value="1b312ff647fd86867d7d5dc3">
     </div>
 
-    <button class="btn-connect" onclick="connectScooter()">1. Scooter'a Bağlan & Auth Yap</button>
-    <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et (0 km/h)</button>
+    <button class="btn-connect" onclick="connectAndListen()">1. Scooter'a Bağlan & Canlı Dinle</button>
+    <button class="btn-action" onclick="setZeroStart()">2. Zero Start Aktif Et</button>
     <button class="btn-action" onclick="setSpeed22()">3. Hızı 22 km/h Yap</button>
     <button class="btn-hazard" id="hazard-btn" onclick="toggleHazards()">4. Dörtlüleri & Sesi Aç</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Token tabanlı kripto modu hazır.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Karşılıklı doğrulama modu hazır.</div>
     </div>
 </div>
 
@@ -133,10 +83,6 @@
     let authCharacteristic = null;
     let hazardsActive = false;
     let hazardInterval = null;
-
-    const ALLOWED_SERVICES = [
-        'fe95', '0000fe95-0000-1000-8000-00805f9b34fb'
-    ];
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -150,68 +96,59 @@
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    async function connectScooter() {
-        scooterCharacteristic = null;
-        let tokenStr = document.getElementById('beacon-token').value.trim();
-        
-        if(tokenStr.length !== 24) {
-            printLog("Hata: Lütfen 24 karakterlik geçerli bir Token girin!", "pink");
-            return;
-        }
-
+    async function connectAndListen() {
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
-                optionalServices: ALLOWED_SERVICES
+                optionalServices: ['fe95']
             });
 
-            printLog(`Cihaz bulundu: ${device.name}. Bağlanılıyor...`, "info");
+            printLog(`Cihaz bağlandı: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
-
-            // Yazma ve Kimlik Doğrulama kanallarını ayrıştırıyoruz
             const characteristics = await service.getCharacteristics();
+
             for (let char of characteristics) {
-                // Kısa UUID veya tam UUID kontrolü
                 let uuid = char.uuid.toLowerCase();
-                if (uuid.includes('00000010') || uuid.includes('0010')) {
-                    authCharacteristic = char; // Kimlik doğrulama kanalı
+                // 0010 veya 00000010 içeren kanal Xiaomi'nin Auth/Notification kanalıdır
+                if (uuid.includes('0010') || uuid.includes('00000010')) {
+                    authCharacteristic = char;
                 }
                 if (char.properties.write || char.properties.writeWithoutResponse) {
-                    scooterCharacteristic = char; // Genel komut kanalı
+                    scooterCharacteristic = char;
                 }
             }
 
-            if (authCharacteristic && tokenStr) {
-                printLog("🔐 Güvenlik duvarı tespit edildi. El sıkışma başlatılıyor...", "warning");
-                await executeHandshake(tokenStr);
+            // CANLI DİNLEME MODUNU AÇIYORUZ
+            if (authCharacteristic && authCharacteristic.properties.notify) {
+                printLog("📡 Scooter canlı veri hattı dinlemeye alınıyor...", "warning");
+                await authCharacteristic.startNotifications();
+                authCharacteristic.addEventListener('characteristicvaluechanged', handleScooterResponse);
+                printLog("🔔 Dinleme Aktif! Scooter'dan gelecek şifreleme meydan okuması bekleniyor...", "success");
+                
+                // İlk tetikleme paketini gönderelim ki scooter bize şifreleme için challenge (nonce) fırlatsın
+                let trigger = new Uint8Array([0x01, 0x00]);
+                await authCharacteristic.writeValue(trigger);
+                printLog("TX -> El sıkışma isteği gönderildi.", "info");
             } else {
-                printLog("🎯 Doğrudan yazma kanalı bağlandı.", "success");
+                printLog("⚠️ Bildirim kanalı bulunamadı, düz yazma modu denenecek.", "pink");
             }
-
-            printLog("SİSTEM HAZIR. Komut göndermeyi deneyebilirsiniz.", "neon");
 
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    async function executeHandshake(tokenStr) {
-        try {
-            // Tokenı Byte dizisine çeviriyoruz
-            let keyBytes = [];
-            for (let i = 0; i < tokenStr.length; i += 2) {
-                keyBytes.push(parseInt(tokenStr.substr(i, 2), 16));
-            }
-
-            // Xiaomi Protokolü: Cihaza token tabanlı ilk yetki açma isteğini gönderiyoruz
-            // Genellikle 0x01, 0x00 ve token'ın türetilmiş hallerini içeren bir imza paketi gerekir
-            let authPacket = new Uint8Array([0x01, 0x00, ...keyBytes.slice(0, 6)]);
-            await authCharacteristic.writeValue(authPacket);
-            printLog("🔑 Kripto anahtar imzası gönderildi. Kilit açıldı!", "success");
-        } catch (e) {
-            printLog(`El sıkışma bypass hatası (Denemeye devam ediliyor): ${e.message}`, "info");
+    // SCOOTER'DAN GELEN CEVAPLARI ANLIK YAKALAYAN FONKSİYON
+    function handleScooterResponse(event) {
+        let value = event.target.value;
+        let hexArray = [];
+        for (let i = 0; i < value.byteLength; i++) {
+            let hex = value.getUint8(i).toString(16).padStart(2, '0').toUpperCase();
+            hexArray.push("0x" + hex);
         }
+        // Scooter'ın gönderdiği ham byte verisini direkt ekrana basıyoruz
+        printLog(`📩 RX (Scooter Cevabı): [${hexArray.join(', ')}]`, "neon");
     }
 
     function createPacket(payload) {
@@ -221,53 +158,39 @@
         let sum = 0;
         for(let i = 2; i < packet.length; i++) sum += packet[i];
         let checksum = (sum ^ 0xFFFF) & 0xFFFF;
-        packet.push(checksum & 0xFF);
-        packet.push((checksum >> 8) & 0xFF);
+        packet.push(checksum & 0xFF); packet.push((checksum >> 8) & 0xFF);
         return new Uint8Array(packet);
     }
 
     async function setZeroStart() {
-        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
-        let packet = createPacket([0x03, 0x20, 0x3A, 0x00]);
+        if (!scooterCharacteristic) return printLog("Hata: Önce bağlantı kurun!", "pink");
         try {
-            await scooterCharacteristic.writeValue(packet);
-            printLog("🚀 Zero Start Paketi Gönderildi!", "success");
+            await scooterCharacteristic.writeValue(createPacket([0x03, 0x20, 0x3A, 0x00]));
+            printLog("🚀 Zero Start Gönderildi!", "success");
         } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 
     async function setSpeed22() {
-        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
-        let packet = createPacket([0x03, 0x20, 0x3B, 0x16]);
+        if (!scooterCharacteristic) return printLog("Hata: Önce bağlantı kurun!", "pink");
         try {
-            await scooterCharacteristic.writeValue(packet);
-            printLog("⚡ Hız Limiti (22 km/h) Paketi Gönderildi!", "success");
+            await scooterCharacteristic.writeValue(createPacket([0x03, 0x20, 0x3B, 0x16]));
+            printLog("⚡ Hız Limiti Gönderildi!", "success");
         } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 
     async function toggleHazards() {
-        if (!scooterCharacteristic) { return printLog("Hata: Önce bağlantı kurun!", "pink"); }
+        if (!scooterCharacteristic) return printLog("Hata: Önce bağlantı kurun!", "pink");
         const btn = document.getElementById('hazard-btn');
-
         if (!hazardsActive) {
-            hazardsActive = true;
-            btn.classList.add('active');
-            btn.innerText = "Dörtlüleri & Sesi Kapat";
-            printLog("🚨 Flaşör döngüsü aktif.", "warning");
-
-            let toggleState = 0;
+            hazardsActive = true; btn.classList.add('active'); btn.innerText = "Dörtlüleri Kapat";
             hazardInterval = setInterval(async () => {
                 try {
-                    let packet = createPacket(toggleState === 0 ? [0x03, 0x22, 0x78, 0x03] : [0x03, 0x22, 0x78, 0x00]);
-                    toggleState = toggleState === 0 ? 1 : 0;
-                    await scooterCharacteristic.writeValue(packet);
-                } catch (err) {}
+                    let cmd = hazardsActive ? [0x03, 0x22, 0x78, 0x03] : [0x03, 0x22, 0x78, 0x00];
+                    await scooterCharacteristic.writeValue(createPacket(cmd));
+                } catch (e) {}
             }, 600);
         } else {
-            hazardsActive = false;
-            clearInterval(hazardInterval);
-            btn.classList.remove('active');
-            btn.innerText = "4. Dörtlüleri & Sesi Aç";
-            printLog("🛑 Flaşör durduruldu.", "info");
+            hazardsActive = false; clearInterval(hazardInterval); btn.classList.remove('active'); btn.innerText = "4. Dörtlüleri & Sesi Aç";
             try { await scooterCharacteristic.writeValue(createPacket([0x03, 0x22, 0x78, 0x00])); } catch(e) {}
         }
     }
