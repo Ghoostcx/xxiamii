@@ -29,25 +29,24 @@
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi 5 / Dreame Canlı Kanal Haritalayıcı</p>
+    <p>Xiaomi 5 / Dreame Kripto Prob Modülü</p>
     
     <div class="token-box">
         <label>Mi Cloud Bind Key (Token):</label>
         <input type="text" id="beacon-token" value="1b312ff647fd86867d7d5dc3">
     </div>
 
-    <button class="btn-connect" onclick="connectAndMap()">1. Scooter'a Bağlan & Kanalları Listele</button>
-    <button class="btn-auth" onclick="sendSecureAuth()">🔐 2. Hedef Kanaldan El Sıkış</button>
-    <button class="btn-action" onclick="setZeroStart()">3. Zero Start Komutu Gönder</button>
+    <button class="btn-connect" onclick="connectAndMap()">1. Kanalları Dinle & Bağlan</button>
+    <button class="btn-auth" onclick="probeCryptoEngine()">⚡ 2. Kripto Motorunu Tetikle (Prob)</button>
+    <button class="btn-action" onclick="forceZeroStart()">3. Zorlamalı Komut Dene</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Haritalama modülü aktif.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Kripto analiz hazır.</div>
     </div>
 </div>
 
 <script>
     let activeCharacteristics = {};
-    let mainWriteChar = null;
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -68,7 +67,7 @@
                 optionalServices: ['fe95']
             });
 
-            printLog(`Cihaz seçildi: ${device.name}`, "info");
+            printLog(`Cihaz: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
             const characteristics = await service.getCharacteristics();
@@ -79,12 +78,7 @@
                 let fullUuid = char.uuid.toLowerCase();
                 let shortUuid = fullUuid.includes('-') ? fullUuid.split('-')[0].slice(-4) : fullUuid.slice(-4);
                 
-                // Kanalları hafızaya kaydet
                 activeCharacteristics[shortUuid] = char;
-
-                if (char.properties.write || char.properties.writeWithoutResponse) {
-                    mainWriteChar = char;
-                }
 
                 if (char.properties.notify) {
                     await char.startNotifications();
@@ -96,38 +90,39 @@
                         }
                         printLog(`📩 RX [Kanal ${shortUuid}]: ${hexArray.join(' ')}`, "warning");
                     });
-                    printLog(`📍 Kanal [${shortUuid}] aktif edildi ve dinleniyor.`, "success");
+                    printLog(`📍 Kanal [${shortUuid}] aktif.`, "success");
                 }
             }
-            printLog("🎯 Tüm hatlar haritalandı. Adım 2'ye geçebilirsiniz.", "neon");
+            printLog("🎯 Hatlar bağlandı. Adım 2 ile kripto probu başlatın.", "neon");
 
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    async function sendSecureAuth() {
-        // Öncelikli olarak cevap aldığımız 001c kanalını, yoksa ana yazma kanalını seçiyoruz
-        let targetChar = activeCharacteristics['001c'] || mainWriteChar;
-        if (!targetChar) return printLog("Hata: Önce bağlantı kurun!", "pink");
+    // YENİ STRATEJİ: Ham paketlerle el sıkışmayı zorlama
+    async function probeCryptoEngine() {
+        let charB = activeCharacteristics['001b'];
+        let charC = activeCharacteristics['001c'];
+        
+        if (!charB && !charC) return printLog("Hata: Önce bağlantı kurun!", "pink");
 
-        let tokenStr = document.getElementById('beacon-token').value.trim();
-        let tokenBytes = [];
-        for (let i = 0; i < tokenStr.length; i += 2) {
-            tokenBytes.push(parseInt(tokenStr.substr(i, 2), 16));
-        }
-
-        // Yeni nesil Dreame / MiOT cihazlar için resmi el sıkışma paket formatı
-        // Başlık (55 AA) + Uzunluk + Kayıt Tipi (01) + Token Verisi
-        let payload = [0x01, 0x00, ...tokenBytes];
-        let securePacket = createPacket(payload);
-
-        printLog(`TX -> Kilitleme kanalına imza paketi atılıyor...`, "info");
         try {
-            await targetChar.writeValue(securePacket);
-            printLog("🔑 İmza gönderildi. Scooter'ın yanıtı bekleniyor...", "neon");
+            // Adım A: Şifresiz, tamamen yalın başlatma byte'ını 001b kanalına fırlatıyoruz
+            if (charB) {
+                printLog("TX -> [001b] kanalına ham auth isteği yollanıyor...", "info");
+                await charB.writeValue(new Uint8Array([0x01, 0x00]));
+            }
+            
+            // Adım B: Aynı ham isteği 001c kanalına da yolluyoruz
+            if (charC) {
+                printLog("TX -> [001c] kanalına ham auth isteği yollanıyor...", "info");
+                await charC.writeValue(new Uint8Array([0x02, 0x00]));
+            }
+
+            printLog("⚡ Problar iletildi. Farklı bir RX yanıtı gelip gelmediğini loglardan inceleyin.", "neon");
         } catch (err) {
-            printLog(`Kimlik Doğrulama Hatası: ${err.message}`, "pink");
+            printLog(`Prob Hatası: ${err.message}`, "pink");
         }
     }
 
@@ -142,14 +137,14 @@
         return new Uint8Array(packet);
     }
 
-    async function setZeroStart() {
-        let targetChar = activeCharacteristics['001c'] || mainWriteChar;
-        if (!targetChar) return printLog("Hata: Önce bağlantı kurun!", "pink");
+    async function forceZeroStart() {
+        let charC = activeCharacteristics['001c'];
+        if (!charC) return printLog("Hata: Kanal bulunamadı!", "pink");
         try {
-            // Standart kural paketi
-            let cmd = createPacket([0x03, 0x20, 0x3A, 0x00]);
-            await targetChar.writeValue(cmd);
-            printLog("TX -> Zero Start Komutu İletildi.", "info");
+            // Alternatif bir kayıt bölgesi denemesi
+            let cmd = createPacket([0x03, 0x22, 0x3A, 0x00]); 
+            await charC.writeValue(cmd);
+            printLog("TX -> Alternatif Zero Start gönderildi.", "info");
         } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 </script>
