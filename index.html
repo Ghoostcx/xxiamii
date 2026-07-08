@@ -20,7 +20,7 @@
         .btn-connect { background: var(--cyan); color: #fff; }
         .btn-auth { background: var(--warning-orange); color: #000; }
         .btn-action { background: #2f3b4c; color: #fff; border: 1px solid var(--cyan); }
-        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 260px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
+        .terminal { background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-top: 20px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 11px; text-align: left; }
         .log-entry { margin-bottom: 4px; line-height: 1.4; }
         .log-time { color: #555; margin-right: 5px; }
     </style>
@@ -29,25 +29,25 @@
 
 <div class="container">
     <h1>Tooble Scooter Firmware Tool</h1>
-    <p>Xiaomi 5 / Dreame Secure Oturum Yönetimi</p>
+    <p>Xiaomi 5 / Dreame Canlı Kanal Haritalayıcı</p>
     
     <div class="token-box">
         <label>Mi Cloud Bind Key (Token):</label>
         <input type="text" id="beacon-token" value="1b312ff647fd86867d7d5dc3">
     </div>
 
-    <button class="btn-connect" onclick="connectAndListen()">1. Bağlan & Kanalları Dinle</button>
-    <button class="btn-auth" onclick="authenticateWithToken()">🔐 2. Güvenli El Sıkışmayı Başlat</button>
-    <button class="btn-action" onclick="setZeroStart()">3. Zero Start Dene</button>
+    <button class="btn-connect" onclick="connectAndMap()">1. Scooter'a Bağlan & Kanalları Listele</button>
+    <button class="btn-auth" onclick="sendSecureAuth()">🔐 2. Hedef Kanaldan El Sıkış</button>
+    <button class="btn-action" onclick="setZeroStart()">3. Zero Start Komutu Gönder</button>
 
     <div class="terminal" id="terminal-console">
-        <div class="log-entry"><span class="log-time">[Sistem]</span> Oturum yönetim modülü hazır.</div>
+        <div class="log-entry"><span class="log-time">[Sistem]</span> Haritalama modülü aktif.</div>
     </div>
 </div>
 
 <script>
-    let writeCharacteristic = null;
-    let authCharacteristic = null;
+    let activeCharacteristics = {};
+    let mainWriteChar = null;
 
     function printLog(message, type = 'info') {
         const consoleEl = document.getElementById('terminal-console');
@@ -61,77 +61,73 @@
         consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    async function connectAndListen() {
+    async function connectAndMap() {
         try {
             const device = await navigator.bluetooth.requestDevice({
                 acceptAllDevices: true,
                 optionalServices: ['fe95']
             });
 
-            printLog(`Cihaz bağlandı: ${device.name}`, "info");
+            printLog(`Cihaz seçildi: ${device.name}`, "info");
             const server = await device.gatt.connect();
             const service = await server.getPrimaryService('fe95');
             const characteristics = await service.getCharacteristics();
 
+            activeCharacteristics = {};
+
             for (let char of characteristics) {
-                // Tam UUID yapısından kısa 4 haneli ID'yi güvenli çıkarıyoruz
                 let fullUuid = char.uuid.toLowerCase();
                 let shortUuid = fullUuid.includes('-') ? fullUuid.split('-')[0].slice(-4) : fullUuid.slice(-4);
                 
+                // Kanalları hafızaya kaydet
+                activeCharacteristics[shortUuid] = char;
+
                 if (char.properties.write || char.properties.writeWithoutResponse) {
-                    writeCharacteristic = char;
+                    mainWriteChar = char;
                 }
-                
+
                 if (char.properties.notify) {
                     await char.startNotifications();
-                    char.addEventListener('characteristicvaluechanged', (e) => handleScooterResponse(e, shortUuid));
-                    printLog(`🔔 Kanal [${shortUuid}] dinlemeye alındı.`, "success");
-                    
-                    // Eğer 0010 veya benzeri yetki kanalıysa auth için sakla
-                    if (shortUuid.includes('10') || shortUuid.includes('0010')) {
-                        authCharacteristic = char;
-                    }
+                    char.addEventListener('characteristicvaluechanged', (e) => {
+                        let value = e.target.value;
+                        let hexArray = [];
+                        for (let i = 0; i < value.byteLength; i++) {
+                            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
+                        }
+                        printLog(`📩 RX [Kanal ${shortUuid}]: ${hexArray.join(' ')}`, "warning");
+                    });
+                    printLog(`📍 Kanal [${shortUuid}] aktif edildi ve dinleniyor.`, "success");
                 }
             }
-            printLog("🎯 Bağlantı stabil. Lütfen 'Güvenli El Sıkışmayı Başlat' butonuna basın.", "neon");
+            printLog("🎯 Tüm hatlar haritalandı. Adım 2'ye geçebilirsiniz.", "neon");
 
         } catch (error) {
             printLog(`Bağlantı Hatası: ${error.message}`, "pink");
         }
     }
 
-    function handleScooterResponse(event, channelId) {
-        let value = event.target.value;
-        let hexArray = [];
-        for (let i = 0; i < value.byteLength; i++) {
-            hexArray.push(value.getUint8(i).toString(16).padStart(2, '0').toUpperCase());
-        }
-        printLog(`📩 RX [Kanal ${channelId}]: ${hexArray.join(' ')}`, "warning");
-    }
-
-    // YENİ ADIM: Token kullanarak oturum imzasını gönderme
-    async function authenticateWithToken() {
-        let targetChar = authCharacteristic || writeCharacteristic;
-        if (!targetChar) return printLog("Hata: Önce cihaza bağlanın!", "pink");
+    async function sendSecureAuth() {
+        // Öncelikli olarak cevap aldığımız 001c kanalını, yoksa ana yazma kanalını seçiyoruz
+        let targetChar = activeCharacteristics['001c'] || mainWriteChar;
+        if (!targetChar) return printLog("Hata: Önce bağlantı kurun!", "pink");
 
         let tokenStr = document.getElementById('beacon-token').value.trim();
-        if (tokenStr.length !== 24) return printLog("Hata: Geçersiz token uzunluğu!", "pink");
-
-        // Token stringini byte dizisine dönüştür
         let tokenBytes = [];
         for (let i = 0; i < tokenStr.length; i += 2) {
             tokenBytes.push(parseInt(tokenStr.substr(i, 2), 16));
         }
 
-        // Xiaomi IoT Protokolü Oturum Açma İmzası (0x01, 0x00 + Token ilk 6 byte veya tamamı)
-        let authPayload = new Uint8Array([0x01, 0x00, ...tokenBytes.slice(0, 8)]);
-        
-        printLog("TX -> Kripto el sıkışma imzası gönderiliyor...", "info");
+        // Yeni nesil Dreame / MiOT cihazlar için resmi el sıkışma paket formatı
+        // Başlık (55 AA) + Uzunluk + Kayıt Tipi (01) + Token Verisi
+        let payload = [0x01, 0x00, ...tokenBytes];
+        let securePacket = createPacket(payload);
+
+        printLog(`TX -> Kilitleme kanalına imza paketi atılıyor...`, "info");
         try {
-            await targetChar.writeValue(authPayload);
-            printLog("🔑 İmza iletildi! Cihazdan gelecek doğrulama yanıtı bekleniyor...", "neon");
+            await targetChar.writeValue(securePacket);
+            printLog("🔑 İmza gönderildi. Scooter'ın yanıtı bekleniyor...", "neon");
         } catch (err) {
-            printLog(`Auth Hatası: ${err.message}`, "pink");
+            printLog(`Kimlik Doğrulama Hatası: ${err.message}`, "pink");
         }
     }
 
@@ -147,10 +143,13 @@
     }
 
     async function setZeroStart() {
-        if (!writeCharacteristic) return printLog("Hata: Önce bağlanın!", "pink");
+        let targetChar = activeCharacteristics['001c'] || mainWriteChar;
+        if (!targetChar) return printLog("Hata: Önce bağlantı kurun!", "pink");
         try {
-            await writeCharacteristic.writeValue(createPacket([0x03, 0x20, 0x3A, 0x00]));
-            printLog("TX -> Zero Start Komutu Gönderildi.", "info");
+            // Standart kural paketi
+            let cmd = createPacket([0x03, 0x20, 0x3A, 0x00]);
+            await targetChar.writeValue(cmd);
+            printLog("TX -> Zero Start Komutu İletildi.", "info");
         } catch(err) { printLog(`Hata: ${err.message}`, "pink"); }
     }
 </script>
